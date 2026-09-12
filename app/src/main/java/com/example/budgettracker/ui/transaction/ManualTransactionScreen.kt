@@ -1,0 +1,359 @@
+package com.example.budgettracker.ui.transaction
+
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.budgettracker.data.model.TransactionType
+import com.example.budgettracker.ui.theme.Green500
+import com.example.budgettracker.ui.theme.Orange500
+import com.example.budgettracker.ui.theme.Red500
+import com.example.budgettracker.ui.theme.Zinc50
+import com.example.budgettracker.ui.theme.ZincCornerRadius
+import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+import com.example.budgettracker.ui.transaction.components.CompactAccountSelector
+import com.example.budgettracker.ui.transaction.components.NumpadView
+import com.example.budgettracker.util.CurrencyUtils
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManualTransactionScreen(
+    viewModel: TransactionViewModel,
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val amountInput by viewModel.amountInput.collectAsState()
+    val selectedType by viewModel.selectedType.collectAsState()
+    val accounts by viewModel.accounts.collectAsState()
+    val selectedAccountId by viewModel.selectedAccountId.collectAsState()
+    val selectedToAccountId by viewModel.selectedToAccountId.collectAsState()
+    val categoryInput by viewModel.categoryInput.collectAsState()
+    val titleInput by viewModel.titleInput.collectAsState()
+    val totalInstallmentsInput by viewModel.totalInstallmentsInput.collectAsState()
+    val noteInput by viewModel.noteInput.collectAsState()
+    val saveState by viewModel.saveState.collectAsState()
+    val categorySuggestions by viewModel.categorySuggestions.collectAsState()
+
+    var categoryDropdownExpanded by remember { mutableStateOf(false) }
+    var isCalculatorVisible by remember { mutableStateOf(false) }
+
+    val selectedAccount = accounts.find { it.id == selectedAccountId }
+    val selectedToAccount = accounts.find { it.id == selectedToAccountId }
+
+    val amountColor = when (selectedType) {
+        TransactionType.INCOME -> Green500
+        TransactionType.TRANSFER -> Zinc50
+        TransactionType.INSTALLMENT -> Red500
+        TransactionType.EXPENSE -> Orange500
+    }
+
+    LaunchedEffect(saveState) {
+        when (val state = saveState) {
+            is SaveResult.Success -> {
+                Toast.makeText(context, "Transaction Saved!", Toast.LENGTH_SHORT).show()
+                viewModel.resetSaveState()
+                onNavigateBack()
+            }
+            is SaveResult.Error -> {
+                Toast.makeText(context, state.message, Toast.LENGTH_LONG).show()
+                viewModel.resetSaveState()
+            }
+            SaveResult.Idle -> {}
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Log Transaction", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+                actions = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
+            )
+        },
+        modifier = modifier
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            // Form input fields (Scrollable top area)
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Type Selector Tabs (Equal width row, single line labels)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TransactionType.entries.forEach { type ->
+                        val labelStr = when (type) {
+                            TransactionType.EXPENSE -> "Expense"
+                            TransactionType.INCOME -> "Income"
+                            TransactionType.TRANSFER -> "Transfer"
+                            TransactionType.INSTALLMENT -> "Installment"
+                        }
+                        FilterChip(
+                            selected = selectedType == type,
+                            onClick = { viewModel.setTransactionType(type) },
+                            label = {
+                                Text(
+                                    text = labelStr,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                // Account Selection Card Grid (ref-account-selector-cards.png pattern)
+                CompactAccountSelector(
+                    label = if (selectedType == TransactionType.TRANSFER) "From Account" else "Account",
+                    selectedAccount = selectedAccount,
+                    accounts = accounts,
+                    onAccountSelected = { viewModel.setAccountId(it.id) }
+                )
+
+                if (selectedType == TransactionType.TRANSFER) {
+                    CompactAccountSelector(
+                        label = "To Destination Account",
+                        selectedAccount = selectedToAccount,
+                        accounts = accounts.filter { it.id != selectedAccountId },
+                        onAccountSelected = { viewModel.setToAccountId(it.id) }
+                    )
+                }
+
+                // Category Dropdown
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Category", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = categoryInput,
+                            onValueChange = { viewModel.setCategory(it) },
+                            placeholder = { Text("Select or type category...", fontSize = 13.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            trailingIcon = {
+                                TextButton(onClick = { categoryDropdownExpanded = true }) {
+                                    Text("▼", fontSize = 10.sp)
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        )
+
+                        DropdownMenu(
+                            expanded = categoryDropdownExpanded,
+                            onDismissRequest = { categoryDropdownExpanded = false }
+                        ) {
+                            val defaultCategories = listOf("Food & Dining", "Bills & Utilities", "Shopping", "Transport", "Entertainment", "Salary", "General")
+                            val suggestions = (categorySuggestions + defaultCategories).distinct()
+                            suggestions.forEach { cat ->
+                                DropdownMenuItem(
+                                    text = { Text(cat, fontSize = 13.sp) },
+                                    onClick = {
+                                        viewModel.setCategory(cat)
+                                        categoryDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Title Input
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = if (selectedType == TransactionType.INSTALLMENT) "Purchase / Item Title" else "Title / Description",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = titleInput,
+                        onValueChange = { viewModel.setTitle(it) },
+                        placeholder = { Text("e.g. Jollibee, Meralco, iPhone 15", fontSize = 13.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    )
+                }
+
+                // Specific fields for INSTALLMENT
+                if (selectedType == TransactionType.INSTALLMENT) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Number of Installment Months", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedTextField(
+                            value = totalInstallmentsInput,
+                            onValueChange = { viewModel.setTotalInstallments(it) },
+                            placeholder = { Text("e.g. 3, 6, 12, 24", fontSize = 13.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        )
+                    }
+                }
+
+                // Note Input
+                OutlinedTextField(
+                    value = noteInput,
+                    onValueChange = { viewModel.setNote(it) },
+                    placeholder = { Text("Add optional note...", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    )
+                )
+
+                // Total Amount Input Display Banner (Tap to slide up Calculator)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(ZincCornerRadius))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(ZincCornerRadius))
+                        .clickable { isCalculatorVisible = true }
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Amount (Tap to enter/calculate)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = if (amountInput.isBlank()) "0.00" else amountInput,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Text(
+                            text = CurrencyUtils.formatCentavosToPesos(viewModel.amountCentavos),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = amountColor
+                        )
+                    }
+                }
+
+                // Primary Save Button when Calculator is hidden
+                if (!isCalculatorVisible) {
+                    Button(
+                        onClick = { viewModel.saveTransaction() },
+                        shape = RoundedCornerShape(ZincSoftCornerRadius),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Text("Save Transaction", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // Numpad Calculator Panel (Hidden by default, slides up when user taps Amount field)
+            AnimatedVisibility(
+                visible = isCalculatorVisible,
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it })
+            ) {
+                NumpadView(
+                    onDigitClick = { viewModel.onDigitInput(it) },
+                    onDotClick = { viewModel.onDotInput() },
+                    onBackspaceClick = { viewModel.onBackspace() },
+                    onClearClick = { viewModel.onClear() },
+                    onOperatorClick = { viewModel.onOperatorClick(it) },
+                    onEqualClick = { viewModel.onEqualClick() },
+                    onConfirmClick = { viewModel.saveTransaction() },
+                    onToggleSignClick = { viewModel.onToggleSign() },
+                    onDismiss = { isCalculatorVisible = false }
+                )
+            }
+        }
+    }
+}

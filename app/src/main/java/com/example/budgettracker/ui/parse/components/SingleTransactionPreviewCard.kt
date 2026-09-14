@@ -58,13 +58,14 @@ fun SingleTransactionPreviewCard(
     parsedTx: ParsedTransaction,
     accounts: List<AccountEntity>,
     onConfirm: (ParsedTransaction, Long, Long?) -> Unit,
+    onAddNewAccount: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedAccountId by remember(parsedTx) {
         val matchedId = parsedTx.accountName?.let { name ->
             accounts.find { it.name.equals(name, ignoreCase = true) }?.id
         }
-        mutableStateOf(matchedId ?: accounts.firstOrNull()?.id)
+        mutableStateOf(matchedId)
     }
 
     var selectedToAccountId by remember(parsedTx) {
@@ -79,13 +80,18 @@ fun SingleTransactionPreviewCard(
     var selectedType by remember(parsedTx) { mutableStateOf(parsedTx.type) }
     var category by remember(parsedTx) { mutableStateOf(parsedTx.category) }
     var title by remember(parsedTx) { mutableStateOf(parsedTx.title) }
+    var totalInstallments by remember(parsedTx) { mutableStateOf(parsedTx.totalInstallments ?: 6) }
 
     var accountDropdownExpanded by remember { mutableStateOf(false) }
+    var toAccountDropdownExpanded by remember { mutableStateOf(false) }
     var typeDropdownExpanded by remember { mutableStateOf(false) }
+    var installmentsDropdownExpanded by remember { mutableStateOf(false) }
+    var isEditingTitle by remember { mutableStateOf(false) }
     var isEditingAmount by remember { mutableStateOf(false) }
     var isEditingCategory by remember { mutableStateOf(false) }
 
     val selectedAccount = accounts.find { it.id == selectedAccountId }
+    val selectedToAccount = accounts.find { it.id == selectedToAccountId }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
     val todayDateStr = remember { dateFormat.format(Date()) }
 
@@ -132,7 +138,7 @@ fun SingleTransactionPreviewCard(
                 Box(modifier = Modifier.fillMaxWidth()) {
                     EditableFieldRow(
                         icon = Icons.Outlined.AccountBalanceWallet,
-                        label = "Account",
+                        label = if (selectedType == TransactionType.TRANSFER) "From Account" else "Account",
                         value = selectedAccount?.name ?: "Select Account",
                         onClick = { accountDropdownExpanded = true }
                     )
@@ -143,14 +149,82 @@ fun SingleTransactionPreviewCard(
                     ) {
                         accounts.forEach { acc ->
                             DropdownMenuItem(
-                                text = { Text("${acc.name} (${acc.type.name})") },
+                                text = { Text("${acc.name} (${acc.type.toDisplayLabel()})") },
                                 onClick = {
                                     selectedAccountId = acc.id
                                     accountDropdownExpanded = false
                                 }
                             )
                         }
+
+                        val candidateName = parsedTx.accountName
+                            ?: if (selectedAccountId == null && title.isNotBlank() && accounts.none { it.name.equals(title, ignoreCase = true) }) title else null
+                        if (candidateName != null && onAddNewAccount != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "+ Create '$candidateName' Account",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                onClick = {
+                                    accountDropdownExpanded = false
+                                    onAddNewAccount(candidateName)
+                                }
+                            )
+                        }
                     }
+                }
+
+                // Transfer Destination Account (if Transfer)
+                if (selectedType == TransactionType.TRANSFER) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        EditableFieldRow(
+                            icon = Icons.Outlined.AccountBalanceWallet,
+                            label = "To Account",
+                            value = selectedToAccount?.name ?: "Select Destination",
+                            onClick = { toAccountDropdownExpanded = true }
+                        )
+
+                        DropdownMenu(
+                            expanded = toAccountDropdownExpanded,
+                            onDismissRequest = { toAccountDropdownExpanded = false }
+                        ) {
+                            accounts.filter { it.id != selectedAccountId }.forEach { acc ->
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${acc.type.toDisplayLabel()})") },
+                                    onClick = {
+                                        selectedToAccountId = acc.id
+                                        toAccountDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Field: Title / Item Description
+                if (isEditingTitle) {
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Title / Description") },
+                        singleLine = true,
+                        trailingIcon = {
+                            TextButton(onClick = { isEditingTitle = false }) {
+                                Text("Done", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    EditableFieldRow(
+                        icon = Icons.Outlined.Sell,
+                        label = "Title",
+                        value = title.ifBlank { category },
+                        onClick = { isEditingTitle = true }
+                    )
                 }
 
                 // Field 2: Amount (Tap to Edit)
@@ -174,12 +248,45 @@ fun SingleTransactionPreviewCard(
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
+                    val amountDisplay = if (selectedType == TransactionType.INSTALLMENT && totalInstallments > 0) {
+                        val monthly = editableAmountCentavos / totalInstallments
+                        "${CurrencyUtils.formatCentavosToPesos(editableAmountCentavos)} (${CurrencyUtils.formatCentavosToPesos(monthly)}/mo)"
+                    } else {
+                        CurrencyUtils.formatCentavosToPesos(editableAmountCentavos)
+                    }
                     EditableFieldRow(
                         icon = Icons.Outlined.Payment,
-                        label = "Amount",
-                        value = CurrencyUtils.formatCentavosToPesos(editableAmountCentavos),
+                        label = if (selectedType == TransactionType.INSTALLMENT) "Total Amount" else "Amount",
+                        value = amountDisplay,
                         onClick = { isEditingAmount = true }
                     )
+                }
+
+                // Installment Duration (if Installment)
+                if (selectedType == TransactionType.INSTALLMENT) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        EditableFieldRow(
+                            icon = Icons.Outlined.CalendarToday,
+                            label = "Duration",
+                            value = "$totalInstallments Months",
+                            onClick = { installmentsDropdownExpanded = true }
+                        )
+
+                        DropdownMenu(
+                            expanded = installmentsDropdownExpanded,
+                            onDismissRequest = { installmentsDropdownExpanded = false }
+                        ) {
+                            listOf(3, 6, 9, 12, 18, 24).forEach { months ->
+                                DropdownMenuItem(
+                                    text = { Text("$months Months") },
+                                    onClick = {
+                                        totalInstallments = months
+                                        installmentsDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Field 3: Category (Tap to Edit)
@@ -310,13 +417,17 @@ fun SingleTransactionPreviewCard(
         }
 
         // Confirm & Save Full-Width Primary Button
+        val isSaveEnabled = selectedAccountId != null &&
+                (selectedType != TransactionType.TRANSFER || (selectedToAccountId != null && selectedToAccountId != selectedAccountId))
+
         Button(
             onClick = {
                 val updatedParsedTx = parsedTx.copy(
                     type = selectedType,
                     amountCentavos = editableAmountCentavos,
                     category = category.trim(),
-                    title = title.ifBlank { category.trim() }
+                    title = title.ifBlank { category.trim() },
+                    totalInstallments = if (selectedType == TransactionType.INSTALLMENT) totalInstallments else null
                 )
                 selectedAccountId?.let { accId ->
                     onConfirm(updatedParsedTx, accId, selectedToAccountId)
@@ -327,7 +438,7 @@ fun SingleTransactionPreviewCard(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ),
-            enabled = selectedAccountId != null,
+            enabled = isSaveEnabled,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)

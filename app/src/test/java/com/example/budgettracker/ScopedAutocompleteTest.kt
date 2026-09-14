@@ -43,7 +43,14 @@ class ScopedAutocompleteTest {
 
         accountDao = database.accountDao()
         transactionDao = database.transactionDao()
-        repository = BudgetRepository(accountDao, transactionDao, database.loanDetailsDao(), database.installmentPlanDao())
+        repository = BudgetRepository(
+            accountDao,
+            transactionDao,
+            database.loanDetailsDao(),
+            database.installmentPlanDao(),
+            database.savingsDetailsDao(),
+            database.billDetailsDao()
+        )
 
         accountId = accountDao.insert(
             AccountEntity(name = "Test Account", type = AccountType.BANK, initialBalance = 100_000L)

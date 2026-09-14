@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.data.model.TransactionType
+import com.example.budgettracker.ui.components.InvalidMathExpressionDialog
 import com.example.budgettracker.ui.theme.Green500
 import com.example.budgettracker.ui.theme.Orange500
 import com.example.budgettracker.ui.theme.Red500
@@ -84,10 +85,12 @@ fun ManualTransactionScreen(
     val totalInstallmentsInput by viewModel.totalInstallmentsInput.collectAsState()
     val noteInput by viewModel.noteInput.collectAsState()
     val saveState by viewModel.saveState.collectAsState()
+    val isEditing by viewModel.isEditing.collectAsState()
     val categorySuggestions by viewModel.categorySuggestions.collectAsState()
 
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
     var isCalculatorVisible by remember { mutableStateOf(false) }
+    var showInvalidMathDialog by remember { mutableStateOf(false) }
 
     val selectedAccount = accounts.find { it.id == selectedAccountId }
     val selectedToAccount = accounts.find { it.id == selectedToAccountId }
@@ -102,12 +105,16 @@ fun ManualTransactionScreen(
     LaunchedEffect(saveState) {
         when (val state = saveState) {
             is SaveResult.Success -> {
-                Toast.makeText(context, "Transaction Saved!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, if (isEditing) "Transaction Updated!" else "Transaction Saved!", Toast.LENGTH_SHORT).show()
                 viewModel.resetSaveState()
                 onNavigateBack()
             }
             is SaveResult.Error -> {
-                Toast.makeText(context, state.message, Toast.LENGTH_LONG).show()
+                if (state.message.contains("expression", ignoreCase = true) || state.message.contains("operator", ignoreCase = true) || state.message.contains("number after", ignoreCase = true)) {
+                    showInvalidMathDialog = true
+                } else {
+                    Toast.makeText(context, state.message, Toast.LENGTH_LONG).show()
+                }
                 viewModel.resetSaveState()
             }
             SaveResult.Idle -> {}
@@ -117,7 +124,7 @@ fun ManualTransactionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Log Transaction", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+                title = { Text(if (isEditing) "Edit Transaction" else "Log Transaction", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
                 actions = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -331,7 +338,7 @@ fun ManualTransactionScreen(
                             .fillMaxWidth()
                             .height(48.dp)
                     ) {
-                        Text("Save Transaction", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(if (isEditing) "Update Transaction" else "Save Transaction", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -348,12 +355,23 @@ fun ManualTransactionScreen(
                     onBackspaceClick = { viewModel.onBackspace() },
                     onClearClick = { viewModel.onClear() },
                     onOperatorClick = { viewModel.onOperatorClick(it) },
-                    onEqualClick = { viewModel.onEqualClick() },
+                    onEqualClick = {
+                        val success = viewModel.onEqualClick()
+                        if (!success) {
+                            showInvalidMathDialog = true
+                        }
+                    },
                     onConfirmClick = { viewModel.saveTransaction() },
                     onToggleSignClick = { viewModel.onToggleSign() },
                     onDismiss = { isCalculatorVisible = false }
                 )
             }
         }
+    }
+
+    if (showInvalidMathDialog) {
+        InvalidMathExpressionDialog(
+            onDismiss = { showInvalidMathDialog = false }
+        )
     }
 }

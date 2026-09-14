@@ -9,6 +9,7 @@ import androidx.room.Transaction
 import androidx.room.Update
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.AccountWithBalance
+import com.example.budgettracker.data.local.entity.AccountWithBillDetails
 import com.example.budgettracker.data.local.entity.AccountWithLoanDetails
 import kotlinx.coroutines.flow.Flow
 
@@ -69,6 +70,7 @@ interface AccountDao {
             a.presetId,
             a.initialBalance,
             a.isActive,
+            a.includeInNetWorth AS includeInNetWorth,
             a.displayOrder,
             a.initialBalance + COALESCE((
                 SELECT SUM(
@@ -108,9 +110,15 @@ interface AccountDao {
             ), 0)
         ), 0)
         FROM accounts a
-        WHERE a.isActive = 1
+        WHERE a.isActive = 1 AND a.includeInNetWorth = 1
     """)
     fun getTotalNetWorth(): Flow<Long>
+
+    @Query("UPDATE accounts SET includeInNetWorth = :include, updatedAt = :timestamp WHERE id = :accountId")
+    suspend fun updateNetWorthInclusion(accountId: Long, include: Boolean, timestamp: Long = System.currentTimeMillis()): Int
+
+    @Query("SELECT * FROM accounts WHERE isActive = 0 ORDER BY updatedAt DESC")
+    fun getAllHiddenAccounts(): Flow<List<AccountEntity>>
 
     @Transaction
     @Query("SELECT * FROM accounts WHERE id = :accountId")
@@ -119,6 +127,10 @@ interface AccountDao {
     @Transaction
     @Query("SELECT * FROM accounts WHERE type IN ('LOAN', 'BNPL') AND isActive = 1 ORDER BY displayOrder ASC")
     fun getAllActiveLoanAccounts(): Flow<List<AccountWithLoanDetails>>
+
+    @Transaction
+    @Query("SELECT * FROM accounts WHERE type = 'BILL' AND isActive = 1 ORDER BY displayOrder ASC")
+    fun getAllActiveBillAccounts(): Flow<List<AccountWithBillDetails>>
 
     @Query("UPDATE accounts SET isActive = 0, updatedAt = :timestamp WHERE id = :id")
     suspend fun softDelete(id: Long, timestamp: Long = System.currentTimeMillis()): Int

@@ -2,6 +2,7 @@ package com.example.budgettracker.ui.history
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.example.budgettracker.ui.components.DeleteTransactionConfirmDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -39,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,6 +63,7 @@ import java.util.Locale
 fun TransactionHistoryScreen(
     viewModel: TransactionHistoryViewModel,
     onNavigateBack: () -> Unit,
+    onEditTransaction: (TransactionEntity) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val accounts by viewModel.allAccounts.collectAsState()
@@ -213,8 +217,10 @@ fun TransactionHistoryScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(ZincCornerRadius))
                                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(ZincCornerRadius))
                                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(ZincCornerRadius))
+                                .clickable { onEditTransaction(tx) }
                                 .padding(12.dp)
                         ) {
                             Row(
@@ -290,26 +296,12 @@ fun TransactionHistoryScreen(
 
     // Confirmation dialog before deleting transaction
     transactionToDelete?.let { tx ->
-        AlertDialog(
-            onDismissRequest = { transactionToDelete = null },
-            title = { Text("Delete Transaction", fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete '${tx.title}' (${CurrencyUtils.formatCentavosToPesos(tx.amount)})?", fontSize = 13.sp) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteTransaction(tx)
-                        transactionToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete", fontWeight = FontWeight.Bold)
-                }
+        DeleteTransactionConfirmDialog(
+            onConfirmDelete = {
+                viewModel.deleteTransaction(tx)
+                transactionToDelete = null
             },
-            dismissButton = {
-                TextButton(onClick = { transactionToDelete = null }) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { transactionToDelete = null }
         )
     }
 }

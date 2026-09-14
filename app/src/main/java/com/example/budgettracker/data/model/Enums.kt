@@ -7,7 +7,19 @@ enum class AccountType {
     BANK,
     LOAN,
     BNPL,
-    ASSET
+    BILL,
+    ASSET;
+
+    fun toDisplayLabel(): String = when (this) {
+        E_WALLET -> "EWALLET"
+        CASH -> "Cash"
+        BANK -> "Bank"
+        SAVINGS -> "Savings"
+        BNPL -> "BNPL"
+        LOAN -> "Loan"
+        BILL -> "Bill"
+        ASSET -> "Asset"
+    }
 }
 
 enum class TransactionType {

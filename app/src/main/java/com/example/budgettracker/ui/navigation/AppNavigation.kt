@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.ui.account.AccountsScreen
 import com.example.budgettracker.ui.dashboard.DashboardScreen
@@ -42,11 +43,17 @@ fun AppNavigation(
     var showTransactionModal by remember { mutableStateOf(false) }
     var isHistoryVisible by remember { mutableStateOf(false) }
 
+    val onEditTransaction: (TransactionEntity) -> Unit = { tx ->
+        transactionViewModel.loadTransactionForEdit(tx)
+        showTransactionModal = true
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         if (isHistoryVisible) {
             TransactionHistoryScreen(
                 viewModel = transactionHistoryViewModel,
-                onNavigateBack = { isHistoryVisible = false }
+                onNavigateBack = { isHistoryVisible = false },
+                onEditTransaction = onEditTransaction
             )
         } else {
             Scaffold(
@@ -63,9 +70,13 @@ fun AppNavigation(
                             DashboardScreen(
                                 viewModel = dashboardViewModel,
                                 repository = repository,
-                                onNavigateToAddTransaction = { showTransactionModal = true },
+                                onNavigateToAddTransaction = {
+                                    transactionViewModel.resetFormForNextEntry()
+                                    showTransactionModal = true
+                                },
                                 onNavigateToAccounts = { currentTab = BottomTab.ACCOUNTS },
-                                onNavigateToHistory = { isHistoryVisible = true }
+                                onNavigateToHistory = { isHistoryVisible = true },
+                                onEditTransaction = onEditTransaction
                             )
                         }
 
@@ -78,7 +89,8 @@ fun AppNavigation(
 
                         BottomTab.ACCOUNTS -> {
                             AccountsScreen(
-                                viewModel = dashboardViewModel
+                                viewModel = dashboardViewModel,
+                                onEditTransaction = onEditTransaction
                             )
                         }
 
@@ -93,7 +105,7 @@ fun AppNavigation(
             }
         }
 
-        // Section 4: Animated Overlay Modal for Manual Transaction Logging
+        // Section 4: Animated Overlay Modal for Manual Transaction Logging / Editing
         AnimatedVisibility(
             visible = showTransactionModal,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -101,7 +113,10 @@ fun AppNavigation(
         ) {
             ManualTransactionScreen(
                 viewModel = transactionViewModel,
-                onNavigateBack = { showTransactionModal = false }
+                onNavigateBack = {
+                    showTransactionModal = false
+                    transactionViewModel.resetFormForNextEntry()
+                }
             )
         }
     }

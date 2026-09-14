@@ -3,8 +3,10 @@ package com.example.budgettracker.ui.parse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
+import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.parser.BatchAccountSetupParser
 import com.example.budgettracker.parser.ParsedAccountSetup
@@ -54,15 +56,14 @@ class QuickParseViewModel(
 
         val accountsList = activeAccounts.value
 
-        // Check if multi-account setup text or setup expression (e.g. "meron akong 200 sa maribank")
+        // Multi-account setup is ONLY triggered if explicitly multiple accounts (>1) were found with balances
         val batchResult = BatchAccountSetupParser.parse(text)
-        val isSetup = BatchAccountSetupParser.isAccountSetupExpression(text)
-        if (batchResult.accounts.isNotEmpty() && (accountsList.isEmpty() || batchResult.accounts.size > 1 || isSetup)) {
+        if (batchResult.accounts.size > 1) {
             _parseResult.value = ParseUiResult.BatchAccounts(batchResult.accounts)
             return
         }
 
-        // Single transaction parse
+        // Single transaction parse with 6-pillar engine
         val singleResult = SingleTransactionParser.parse(text, accountsList)
         if (singleResult.amountCentavos > 0L) {
             _parseResult.value = ParseUiResult.SingleTransaction(singleResult)
@@ -94,7 +95,26 @@ class QuickParseViewModel(
 
         viewModelScope.launch(ioDispatcher) {
             try {
-                repository.insertTransaction(transaction)
+                val insertedId = repository.insertTransaction(transaction)
+
+                if (parsedTx.type == TransactionType.INSTALLMENT) {
+                    val numInstallments = parsedTx.totalInstallments ?: 6
+                    val monthly = parsedTx.amountCentavos / maxOf(1, numInstallments)
+                    val plan = InstallmentPlanEntity(
+                        accountId = selectedAccountId,
+                        title = parsedTx.title.ifBlank { parsedTx.category },
+                        category = parsedTx.category,
+                        totalPurchaseAmount = parsedTx.amountCentavos,
+                        totalInstallments = numInstallments,
+                        installmentsPaid = 0,
+                        remainingBalance = parsedTx.amountCentavos,
+                        monthlyPaymentAmount = monthly,
+                        purchaseDate = System.currentTimeMillis()
+                    )
+                    val planId = repository.insertInstallmentPlan(plan)
+                    repository.updateTransaction(transaction.copy(id = insertedId, installmentPlanId = planId))
+                }
+
                 _parseResult.value = ParseUiResult.Success
                 _inputText.value = ""
                 onSuccess()
@@ -104,12 +124,42 @@ class QuickParseViewModel(
         }
     }
 
+    fun createAccount(
+        account: AccountEntity,
+        loanDetails: LoanAccountDetailsEntity? = null,
+        savingsDetails: com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity? = null,
+        billDetails: com.example.budgettracker.data.local.entity.BillAccountDetailsEntity? = null,
+        onCreated: (Long) -> Unit = {}
+    ) {
+        if (activeAccounts.value.size >= 10) {
+            _parseResult.value = ParseUiResult.Error("Account limit reached (maximum 10 accounts)")
+            return
+        }
+        viewModelScope.launch(ioDispatcher) {
+            val id = repository.insertAccount(account)
+            if (loanDetails != null) {
+                repository.insertLoanDetails(loanDetails.copy(accountId = id))
+            }
+            if (savingsDetails != null) {
+                repository.insertSavingsDetails(savingsDetails.copy(accountId = id))
+            }
+            if (billDetails != null) {
+                repository.insertBillDetails(billDetails.copy(accountId = id))
+            }
+            onCreated(id)
+        }
+    }
+
     fun confirmAndSaveBatchAccounts(
         accountsToSave: List<ParsedAccountSetup>,
         onSuccess: () -> Unit = {}
     ) {
         if (accountsToSave.isEmpty()) {
             _parseResult.value = ParseUiResult.Error("No accounts to save")
+            return
+        }
+        if (activeAccounts.value.size + accountsToSave.size > 10) {
+            _parseResult.value = ParseUiResult.Error("Account limit reached (maximum 10 accounts)")
             return
         }
 

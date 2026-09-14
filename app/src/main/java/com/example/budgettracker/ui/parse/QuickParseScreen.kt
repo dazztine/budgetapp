@@ -43,7 +43,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +53,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.ui.account.AddEditAccountDialog
+import com.example.budgettracker.ui.components.AccountLimitReachedDialog
 import com.example.budgettracker.ui.parse.components.BatchAccountsPreviewList
 import com.example.budgettracker.ui.parse.components.SingleTransactionPreviewCard
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
@@ -68,6 +74,9 @@ fun QuickParseScreen(
     val activeAccounts by viewModel.activeAccounts.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    var showCreateAccountDialog by remember { mutableStateOf(false) }
+    var showAccountLimitDialog by remember { mutableStateOf(false) }
+    var candidateAccountToCreate by remember { mutableStateOf<AccountEntity?>(null) }
 
     LaunchedEffect(parseResult) {
         when (val state = parseResult) {
@@ -113,14 +122,23 @@ fun QuickParseScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    SampleChip(label = "GCash Expense") {
-                        viewModel.updateInputText("Bought groceries at SM for 850 using GCash")
+                    SampleChip(label = "Jollibee 250 GCash") {
+                        viewModel.updateInputText("Jollibee 250 GCash")
                     }
-                    SampleChip(label = "BPI Transfer") {
-                        viewModel.updateInputText("Transferred PHP 2,500.00 from BPI to GCash for allowance")
+                    SampleChip(label = "nag-Grab 320 via gcash") {
+                        viewModel.updateInputText("nag-Grab 320 via gcash")
                     }
-                    SampleChip(label = "Multi-Account Setup") {
-                        viewModel.updateInputText("GCash: 15,000 pesos; BPI: 50,000; SPayLater: 10,000 due 15th and 30th")
+                    SampleChip(label = "lipat 500 gcash to maya") {
+                        viewModel.updateInputText("lipat 500 gcash to maya")
+                    }
+                    SampleChip(label = "meralco 1500 gamit maya") {
+                        viewModel.updateInputText("nagbayad ako 1500 sa meralco gamit maya")
+                    }
+                    SampleChip(label = "sahod 35k bpi") {
+                        viewModel.updateInputText("sahod 35k bpi")
+                    }
+                    SampleChip(label = "s24 3500/mo spaylater") {
+                        viewModel.updateInputText("bumili ako s24 3500/mo spaylater 6 months")
                     }
                 }
             }
@@ -161,7 +179,7 @@ fun QuickParseScreen(
                     onValueChange = { viewModel.updateInputText(it) },
                     placeholder = {
                         Text(
-                            text = "Example:\nBought groceries at SM for 850 using GCash",
+                            text = "Example:\nnag-Grab 320 via gcash\nor: Dinner 450 with Sarah GCash\nor: bumili ako s24 3500/mo spaylater 6 months",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
@@ -237,6 +255,14 @@ fun QuickParseScreen(
                         accounts = activeAccounts,
                         onConfirm = { tx, accId, toAccId ->
                             viewModel.confirmAndSaveSingleTransaction(tx, accId, toAccId, onSuccess = onNavigateBack)
+                        },
+                        onAddNewAccount = { candidateName ->
+                            if (activeAccounts.size >= 10) {
+                                showAccountLimitDialog = true
+                            } else {
+                                candidateAccountToCreate = AccountEntity(name = candidateName, type = AccountType.BANK)
+                                showCreateAccountDialog = true
+                            }
                         }
                     )
                 }
@@ -244,13 +270,38 @@ fun QuickParseScreen(
                     BatchAccountsPreviewList(
                         parsedAccounts = state.accounts,
                         onConfirmSaveAll = { accountsList ->
-                            viewModel.confirmAndSaveBatchAccounts(accountsList, onSuccess = onNavigateBack)
+                            if (activeAccounts.size + accountsList.size > 10) {
+                                showAccountLimitDialog = true
+                            } else {
+                                viewModel.confirmAndSaveBatchAccounts(accountsList, onSuccess = onNavigateBack)
+                            }
                         }
                     )
                 }
                 else -> {}
             }
         }
+    }
+
+    if (showCreateAccountDialog && candidateAccountToCreate != null) {
+        AddEditAccountDialog(
+            initialAccount = candidateAccountToCreate,
+            onDismiss = {
+                showCreateAccountDialog = false
+                candidateAccountToCreate = null
+            },
+            onSaveFull = { acc, loan, sav, bill ->
+                viewModel.createAccount(acc, loan, sav, bill)
+                showCreateAccountDialog = false
+                candidateAccountToCreate = null
+            }
+        )
+    }
+
+    if (showAccountLimitDialog) {
+        AccountLimitReachedDialog(
+            onDismiss = { showAccountLimitDialog = false }
+        )
     }
 }
 

@@ -63,4 +63,107 @@ class SingleTransactionParserTest {
         assertEquals("Maya", result.toAccountName)
         assertEquals("Transfer", result.category)
     }
+
+    @Test
+    fun testUserBugFixGCashThat() {
+        // Must lock to canonical "GCash" and NEVER create/return "GCash that"
+        val sentence = "GCash that 500"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals(50_000L, result.amountCentavos)
+        assertEquals("GCash", result.accountName)
+    }
+
+    @Test
+    fun testPillar1AffixStripping() {
+        val sentence = "nag-Grab 320 via gcash"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals(32_000L, result.amountCentavos)
+        assertEquals("GCash", result.accountName)
+        assertEquals("Transportation", result.category)
+        assertEquals("Grab", result.title)
+    }
+
+    @Test
+    fun testPillar2MultiplierNormalization() {
+        val sentence = "sahod 35k bpi"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.INCOME, result.type)
+        assertEquals(3_500_000L, result.amountCentavos)
+        assertEquals("BPI", result.accountName)
+        assertEquals("Salary", result.category)
+    }
+
+    @Test
+    fun testPillar3MarkerGrammarTransfer() {
+        val sentence = "lipat 500 gcash to maya"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.TRANSFER, result.type)
+        assertEquals(50_000L, result.amountCentavos)
+        assertEquals("GCash", result.accountName)
+        assertEquals("Maya", result.toAccountName)
+    }
+
+    @Test
+    fun testPillar4ConversationalTagalog() {
+        val sentence = "nagbayad ako 1500 sa meralco gamit maya"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals(150_000L, result.amountCentavos)
+        assertEquals("Maya", result.accountName)
+        assertEquals("Bills & Utilities", result.category)
+        assertEquals("Meralco", result.title)
+    }
+
+    @Test
+    fun testPillar5VoiceTypoFuzzyTolerance() {
+        val sentence = "jolibee 250 gecash"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals(25_000L, result.amountCentavos)
+        assertEquals("GCash", result.accountName)
+        assertEquals("Food & Dining", result.category)
+    }
+
+    @Test
+    fun testPillar6ResidualTitleRetention() {
+        val sentence = "Dinner 450 with Sarah GCash"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals(45_000L, result.amountCentavos)
+        assertEquals("GCash", result.accountName)
+        assertEquals("Food & Dining", result.category)
+        assertEquals("Dinner With Sarah", result.title)
+    }
+
+    @Test
+    fun testPillarInstallmentBNPL() {
+        val sentence = "bumili ako s24 3500/mo spaylater 6 months"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.INSTALLMENT, result.type)
+        assertEquals(2_100_000L, result.amountCentavos)
+        assertEquals("SPayLater", result.accountName)
+        assertEquals(6, result.totalInstallments)
+        assertEquals("S24", result.title)
+    }
+
+    @Test
+    fun testUnmatchedAccountDoesNotDefaultToExisting() {
+        val sentence = "meron akong 200 sa maribank"
+        val result = SingleTransactionParser.parse(sentence, knownAccounts)
+
+        assertEquals(TransactionType.EXPENSE, result.type)
+        assertEquals(20_000L, result.amountCentavos)
+        org.junit.Assert.assertNull("Account should be null when unmatched", result.accountName)
+        assertEquals("Maribank", result.title)
+    }
 }

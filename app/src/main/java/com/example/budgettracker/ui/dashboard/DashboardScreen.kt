@@ -51,8 +51,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.repository.BudgetRepository
+import com.example.budgettracker.ui.account.AccountDetailSheet
 import com.example.budgettracker.ui.backup.BackupRestoreDialog
+import com.example.budgettracker.ui.components.DeleteTransactionConfirmDialog
 import com.example.budgettracker.ui.dashboard.components.AccountCard
 import com.example.budgettracker.ui.dashboard.components.NetWorthCard
 import com.example.budgettracker.ui.dashboard.components.RecentTransactionsList
@@ -62,6 +65,8 @@ import com.example.budgettracker.ui.theme.Red500
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
 import com.example.budgettracker.util.CurrencyUtils
 import com.example.budgettracker.util.LoanDateUtils
+import kotlinx.coroutines.flow.flowOf
+import androidx.compose.runtime.LaunchedEffect
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.Date
@@ -75,16 +80,27 @@ fun DashboardScreen(
     onNavigateToAddTransaction: () -> Unit,
     onNavigateToAccounts: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
+    onEditTransaction: (TransactionEntity) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val netWorth by viewModel.netWorth.collectAsState()
     val accountsWithBalances by viewModel.activeAccountsWithBalances.collectAsState()
     val recentTransactions by viewModel.recentTransactions.collectAsState()
     val loanAccounts by viewModel.loanAccounts.collectAsState()
+    val billAccounts by viewModel.billAccounts.collectAsState()
     val activeInstallments by viewModel.activeInstallmentPlans.collectAsState()
     val monthlyTotals by viewModel.monthlyTotals.collectAsState()
 
     var showBackupDialog by remember { mutableStateOf(false) }
+    var isBalanceVisible by remember { mutableStateOf(true) }
+    var transactionToDelete by remember { mutableStateOf<com.example.budgettracker.data.local.entity.TransactionEntity?>(null) }
+    var selectedAccountForDetailSheet by remember { mutableStateOf<com.example.budgettracker.data.local.entity.AccountWithBalance?>(null) }
+
+    val detailSheetTransactions by remember(selectedAccountForDetailSheet?.id) {
+        selectedAccountForDetailSheet?.id?.let { id ->
+            viewModel.getTransactionsForAccount(id)
+        } ?: flowOf(emptyList())
+    }.collectAsState(initial = emptyList())
 
     Scaffold(
         topBar = {
@@ -127,7 +143,8 @@ fun DashboardScreen(
             // Net Worth Hero Card
             NetWorthCard(
                 netWorth = netWorth,
-                onClick = onNavigateToAccounts
+                isBalanceVisible = isBalanceVisible,
+                onToggleVisibility = { isBalanceVisible = !isBalanceVisible }
             )
 
             // Accounts Section (2x2 Grid + See More)
@@ -170,7 +187,8 @@ fun DashboardScreen(
                                 AccountCard(
                                     accountWithBalance = accountItem,
                                     loanDetails = loanDetail,
-                                    onEditClick = onNavigateToAccounts,
+                                    isBalanceVisible = isBalanceVisible,
+                                    onEditClick = { selectedAccountForDetailSheet = accountItem },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -300,7 +318,7 @@ fun DashboardScreen(
             }
 
             // "Upcoming Due Dates" Carousel
-            val dueItems = remember(loanAccounts, activeInstallments) {
+            val dueItems = remember(loanAccounts, billAccounts, activeInstallments) {
                 val list = mutableListOf<UpcomingDueItem>()
                 val today = LocalDate.now()
 
@@ -314,6 +332,20 @@ fun DashboardScreen(
                             title = loan.account.name,
                             dateDisplay = "$monthStr $dayStr",
                             minPayment = details.minimumAmountDue
+                        )
+                    )
+                }
+
+                for (bill in billAccounts) {
+                    val details = bill.billDetails ?: continue
+                    val dueDate = LoanDateUtils.calculateNextDueDate(today, details.dueDay, null)
+                    val monthStr = dueDate.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
+                    val dayStr = dueDate.dayOfMonth
+                    list.add(
+                        UpcomingDueItem(
+                            title = bill.account.name,
+                            dateDisplay = "$monthStr $dayStr",
+                            minPayment = details.amountDue ?: 0L
                         )
                     )
                 }
@@ -397,16 +429,75 @@ fun DashboardScreen(
                 RecentTransactionsList(
                     transactions = recentTransactions,
                     accounts = accountsList,
-                    onDeleteClick = { viewModel.deleteTransaction(it) }
+                    onTransactionClick = onEditTransaction,
+                    onDeleteClick = { transactionToDelete = it }
                 )
             }
         }
+    }
+
+    transactionToDelete?.let { tx ->
+        DeleteTransactionConfirmDialog(
+            onConfirmDelete = {
+                viewModel.deleteTransaction(tx)
+                transactionToDelete = null
+            },
+            onDismiss = { transactionToDelete = null }
+        )
     }
 
     if (showBackupDialog) {
         BackupRestoreDialog(
             repository = repository,
             onDismiss = { showBackupDialog = false }
+        )
+    }
+
+    selectedAccountForDetailSheet?.let { selectedAcc ->
+        val currentAccWithBalance = accountsWithBalances.find { it.id == selectedAcc.id } ?: selectedAcc
+        val loanDetail = loanAccounts.find { it.account.id == selectedAcc.id }?.loanDetails
+
+        var currentSavingsDetail by remember(selectedAcc.id) { mutableStateOf<com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity?>(null) }
+        var currentBillDetail by remember(selectedAcc.id) { mutableStateOf<com.example.budgettracker.data.local.entity.BillAccountDetailsEntity?>(null) }
+
+        LaunchedEffect(selectedAcc.id) {
+            currentSavingsDetail = viewModel.getSavingsDetailsForAccount(selectedAcc.id)
+            currentBillDetail = viewModel.getBillDetailsForAccount(selectedAcc.id)
+        }
+
+        AccountDetailSheet(
+            account = currentAccWithBalance,
+            loanDetails = loanDetail,
+            savingsDetails = currentSavingsDetail,
+            billDetails = currentBillDetail,
+            transactions = detailSheetTransactions,
+            allAccounts = accountsWithBalances.map {
+                AccountEntity(
+                    id = it.id,
+                    name = it.name,
+                    type = it.type,
+                    presetId = it.presetId,
+                    initialBalance = it.initialBalance,
+                    isActive = it.isActive,
+                    includeInNetWorth = it.includeInNetWorth,
+                    displayOrder = it.displayOrder
+                )
+            },
+            onDismiss = { selectedAccountForDetailSheet = null },
+            onEditClick = {
+                selectedAccountForDetailSheet = null
+                onNavigateToAccounts()
+            },
+            onNetWorthToggle = { include ->
+                viewModel.updateNetWorthInclusion(selectedAcc.id, include)
+            },
+            onDeleteTransaction = { tx ->
+                viewModel.deleteTransaction(tx)
+            },
+            onEditTransaction = { tx ->
+                selectedAccountForDetailSheet = null
+                onEditTransaction(tx)
+            }
         )
     }
 }

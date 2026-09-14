@@ -2,10 +2,12 @@ package com.example.budgettracker.ui.account
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -21,14 +23,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,16 +53,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.rememberCoroutineScope
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.AccountWithBalance
+import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.AccountType
 import com.example.budgettracker.data.model.TransactionType
+import com.example.budgettracker.ui.components.AccountLimitReachedDialog
+import com.example.budgettracker.ui.components.DeleteAccountBlockedDialog
 import com.example.budgettracker.ui.dashboard.DashboardViewModel
 import com.example.budgettracker.ui.dashboard.components.AccountCard
 import com.example.budgettracker.ui.dashboard.components.NetWorthCard
 import com.example.budgettracker.ui.theme.ZincCornerRadius
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,20 +78,36 @@ import kotlin.math.abs
 fun AccountsScreen(
     viewModel: DashboardViewModel,
     onNavigateBack: () -> Unit = {},
+    onEditTransaction: (TransactionEntity) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val accountsWithBalances by viewModel.activeAccountsWithBalances.collectAsState()
     val loanAccounts by viewModel.loanAccounts.collectAsState()
+    val hiddenAccounts by viewModel.hiddenAccounts.collectAsState()
     val netWorth by viewModel.netWorth.collectAsState()
 
+    var isBalanceVisible by remember { mutableStateOf(true) }
     var selectedFilterCategory by remember { mutableStateOf("All") }
+    var isHiddenSectionExpanded by remember { mutableStateOf(false) }
+
+    var selectedAccountForDetailSheet by remember { mutableStateOf<AccountWithBalance?>(null) }
+    val detailSheetTransactions by remember(selectedAccountForDetailSheet?.id) {
+        selectedAccountForDetailSheet?.id?.let { id ->
+            viewModel.getTransactionsForAccount(id)
+        } ?: flowOf(emptyList())
+    }.collectAsState(initial = emptyList())
 
     var showAccountDialog by remember { mutableStateOf(false) }
+    var showAccountLimitDialog by remember { mutableStateOf(false) }
+    var showDeleteBlockedDialog by remember { mutableStateOf<Long?>(null) }
     var accountToEdit by remember { mutableStateOf<AccountEntity?>(null) }
     var loanDetailsToEdit by remember { mutableStateOf<LoanAccountDetailsEntity?>(null) }
+    var savingsDetailsToEdit by remember { mutableStateOf<SavingsAccountDetailsEntity?>(null) }
+    var billDetailsToEdit by remember { mutableStateOf<BillAccountDetailsEntity?>(null) }
 
-    val categories = listOf("All", "Cash", "Bank", "E-Wallet", "BNPL", "Loan", "Savings")
+    val categories = listOf("All", "Cash", "Bank", "E-Wallet", "Loan", "Savings", "Bill")
 
     val filteredAccounts = accountsWithBalances.filter { acc ->
         when (selectedFilterCategory) {
@@ -84,9 +115,9 @@ fun AccountsScreen(
             "Cash" -> acc.type == AccountType.CASH
             "Bank" -> acc.type == AccountType.BANK
             "E-Wallet" -> acc.type == AccountType.E_WALLET
-            "BNPL" -> acc.type == AccountType.BNPL
-            "Loan" -> acc.type == AccountType.LOAN
+            "Loan" -> acc.type == AccountType.LOAN || acc.type == AccountType.BNPL
             "Savings" -> acc.type == AccountType.SAVINGS
+            "Bill" -> acc.type == AccountType.BILL
             else -> true
         }
     }
@@ -115,7 +146,8 @@ fun AccountsScreen(
             // 1. Total Net Worth Card at Top
             NetWorthCard(
                 netWorth = netWorth,
-                onClick = {}
+                isBalanceVisible = isBalanceVisible,
+                onToggleVisibility = { isBalanceVisible = !isBalanceVisible }
             )
 
             // 2. Category Filter Pills
@@ -165,18 +197,9 @@ fun AccountsScreen(
                         AccountCard(
                             accountWithBalance = acc1,
                             loanDetails = loan1,
+                            isBalanceVisible = isBalanceVisible,
                             onEditClick = {
-                                accountToEdit = AccountEntity(
-                                    id = acc1.id,
-                                    name = acc1.name,
-                                    type = acc1.type,
-                                    presetId = acc1.presetId,
-                                    initialBalance = acc1.initialBalance,
-                                    isActive = acc1.isActive,
-                                    displayOrder = acc1.displayOrder
-                                )
-                                loanDetailsToEdit = loan1?.loanDetails
-                                showAccountDialog = true
+                                selectedAccountForDetailSheet = acc1
                             },
                             modifier = Modifier.weight(1f)
                         )
@@ -184,10 +207,12 @@ fun AccountsScreen(
                         InlineAddAccountCard(
                             onClick = {
                                 if (accountsWithBalances.size >= 10) {
-                                    Toast.makeText(context, "Account limit reached (max 10 accounts)", Toast.LENGTH_SHORT).show()
+                                    showAccountLimitDialog = true
                                 } else {
                                     accountToEdit = null
                                     loanDetailsToEdit = null
+                                    savingsDetailsToEdit = null
+                                    billDetailsToEdit = null
                                     showAccountDialog = true
                                 }
                             },
@@ -202,18 +227,9 @@ fun AccountsScreen(
                         AccountCard(
                             accountWithBalance = acc2,
                             loanDetails = loan2,
+                            isBalanceVisible = isBalanceVisible,
                             onEditClick = {
-                                accountToEdit = AccountEntity(
-                                    id = acc2.id,
-                                    name = acc2.name,
-                                    type = acc2.type,
-                                    presetId = acc2.presetId,
-                                    initialBalance = acc2.initialBalance,
-                                    isActive = acc2.isActive,
-                                    displayOrder = acc2.displayOrder
-                                )
-                                loanDetailsToEdit = loan2?.loanDetails
-                                showAccountDialog = true
+                                selectedAccountForDetailSheet = acc2
                             },
                             modifier = Modifier.weight(1f)
                         )
@@ -221,10 +237,12 @@ fun AccountsScreen(
                         InlineAddAccountCard(
                             onClick = {
                                 if (accountsWithBalances.size >= 10) {
-                                    Toast.makeText(context, "Account limit reached (max 10 accounts)", Toast.LENGTH_SHORT).show()
+                                    showAccountLimitDialog = true
                                 } else {
                                     accountToEdit = null
                                     loanDetailsToEdit = null
+                                    savingsDetailsToEdit = null
+                                    billDetailsToEdit = null
                                     showAccountDialog = true
                                 }
                             },
@@ -232,6 +250,96 @@ fun AccountsScreen(
                         )
                     } else {
                         Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+
+            // 4. Hidden Accounts Collapsible Section
+            if (hiddenAccounts.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(ZincCornerRadius))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(ZincCornerRadius))
+                        .padding(14.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isHiddenSectionExpanded = !isHiddenSectionExpanded },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VisibilityOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = "Hidden Accounts (${hiddenAccounts.size})",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Icon(
+                                imageVector = if (isHiddenSectionExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (isHiddenSectionExpanded) "Collapse" else "Expand",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (isHiddenSectionExpanded) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                hiddenAccounts.forEach { hiddenAcc ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(ZincSoftCornerRadius))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = hiddenAcc.name,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = hiddenAcc.type.toDisplayLabel(),
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (accountsWithBalances.size >= 10) {
+                                                    showAccountLimitDialog = true
+                                                } else {
+                                                    viewModel.restoreAccount(hiddenAcc.id)
+                                                    Toast.makeText(context, "${hiddenAcc.name} restored", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(ZincSoftCornerRadius),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("Un-hide", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -247,14 +355,16 @@ fun AccountsScreen(
         AddEditAccountDialog(
             initialAccount = accountToEdit,
             initialLoanDetails = loanDetailsToEdit,
+            initialSavingsDetails = savingsDetailsToEdit,
+            initialBillDetails = billDetailsToEdit,
             currentBalance = currentBalForEdit,
             onDismiss = { showAccountDialog = false },
-            onSaveWithAdjustment = { account, loanDetails, targetBal, logAdjustment ->
+            onSaveWithAdjustmentFull = { account, loanDetails, savingsDetails, billDetails, targetBal, logAdjustment ->
                 if (accountToEdit != null && currentBalForEdit != null && targetBal != currentBalForEdit) {
                     val diff = targetBal - currentBalForEdit
                     if (logAdjustment) {
                         val type = if (diff > 0) TransactionType.INCOME else TransactionType.EXPENSE
-                        viewModel.saveAccount(account, loanDetails)
+                        viewModel.saveAccount(account, loanDetails, savingsDetails, billDetails)
                         viewModel.logBalanceAdjustment(
                             accountId = account.id,
                             type = type,
@@ -266,16 +376,107 @@ fun AccountsScreen(
                         val updatedAccount = account.copy(
                             initialBalance = account.initialBalance + diff
                         )
-                        viewModel.saveAccount(updatedAccount, loanDetails)
+                        viewModel.saveAccount(updatedAccount, loanDetails, savingsDetails, billDetails)
                         Toast.makeText(context, "Balance baseline updated!", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    viewModel.saveAccount(account, loanDetails)
+                    viewModel.saveAccount(account, loanDetails, savingsDetails, billDetails)
                     Toast.makeText(context, "Account saved!", Toast.LENGTH_SHORT).show()
                 }
             },
             onSoftDelete = { accountId ->
+                scope.launch {
+                    val count = viewModel.getTransactionCountForAccount(accountId)
+                    if (count > 0) {
+                        showDeleteBlockedDialog = accountId
+                    } else {
+                        viewModel.softDeleteAccount(accountId)
+                        Toast.makeText(context, "Account deleted", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
+
+    // Account Limit Reached Dialog
+    if (showAccountLimitDialog) {
+        AccountLimitReachedDialog(
+            onDismiss = { showAccountLimitDialog = false }
+        )
+    }
+
+    // Delete Account Blocked Dialog
+    showDeleteBlockedDialog?.let { accountId ->
+        DeleteAccountBlockedDialog(
+            onHideAccount = {
                 viewModel.softDeleteAccount(accountId)
+                Toast.makeText(context, "Account hidden", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showDeleteBlockedDialog = null }
+        )
+    }
+
+    // Account Detail Bottom Sheet
+    selectedAccountForDetailSheet?.let { selectedAcc ->
+        val currentAccWithBalance = accountsWithBalances.find { it.id == selectedAcc.id } ?: selectedAcc
+        val loanDetail = loanAccounts.find { it.account.id == selectedAcc.id }?.loanDetails
+
+        var currentSavingsDetail by remember(selectedAcc.id) { mutableStateOf<SavingsAccountDetailsEntity?>(null) }
+        var currentBillDetail by remember(selectedAcc.id) { mutableStateOf<BillAccountDetailsEntity?>(null) }
+
+        LaunchedEffect(selectedAcc.id) {
+            currentSavingsDetail = viewModel.getSavingsDetailsForAccount(selectedAcc.id)
+            currentBillDetail = viewModel.getBillDetailsForAccount(selectedAcc.id)
+        }
+
+        AccountDetailSheet(
+            account = currentAccWithBalance,
+            loanDetails = loanDetail,
+            savingsDetails = currentSavingsDetail,
+            billDetails = currentBillDetail,
+            transactions = detailSheetTransactions,
+            allAccounts = accountsWithBalances.map {
+                AccountEntity(
+                    id = it.id,
+                    name = it.name,
+                    type = it.type,
+                    presetId = it.presetId,
+                    initialBalance = it.initialBalance,
+                    isActive = it.isActive,
+                    includeInNetWorth = it.includeInNetWorth,
+                    displayOrder = it.displayOrder
+                )
+            },
+            onDismiss = { selectedAccountForDetailSheet = null },
+            onEditClick = {
+                val accToEdit = selectedAcc
+                selectedAccountForDetailSheet = null
+                scope.launch {
+                    accountToEdit = AccountEntity(
+                        id = accToEdit.id,
+                        name = accToEdit.name,
+                        type = accToEdit.type,
+                        presetId = accToEdit.presetId,
+                        initialBalance = accToEdit.initialBalance,
+                        isActive = accToEdit.isActive,
+                        includeInNetWorth = accToEdit.includeInNetWorth,
+                        displayOrder = accToEdit.displayOrder
+                    )
+                    loanDetailsToEdit = loanDetail
+                    savingsDetailsToEdit = viewModel.getSavingsDetailsForAccount(accToEdit.id)
+                    billDetailsToEdit = viewModel.getBillDetailsForAccount(accToEdit.id)
+                    showAccountDialog = true
+                }
+            },
+            onNetWorthToggle = { include ->
+                viewModel.updateNetWorthInclusion(selectedAcc.id, include)
+            },
+            onDeleteTransaction = { tx ->
+                viewModel.deleteTransaction(tx)
+            },
+            onEditTransaction = { tx ->
+                selectedAccountForDetailSheet = null
+                onEditTransaction(tx)
             }
         )
     }
@@ -291,34 +492,50 @@ private fun InlineAddAccountCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(96.dp)
             .clip(RoundedCornerShape(ZincCornerRadius))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .background(MaterialTheme.colorScheme.surface)
             .dashedBorder(
-                width = 1.5.dp,
-                color = outlineColor,
+                width = 1.dp,
+                color = outlineColor.copy(alpha = 0.8f),
                 cornerRadius = ZincCornerRadius
             )
             .clickable(onClick = onClick)
-            .padding(14.dp),
-        contentAlignment = Alignment.Center
+            .padding(14.dp)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Add Account",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-            Text(
-                text = "Add Account",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Icon Badge Top Left matching AccountCard size and shape
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add Account",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Typography matching AccountCard vertical layout
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Add Account",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1
+                )
+                Text(
+                    text = "New account",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
         }
     }
 }

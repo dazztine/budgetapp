@@ -55,7 +55,9 @@ class QuickParseViewModelTest {
                 database.accountDao(),
                 database.transactionDao(),
                 database.loanDetailsDao(),
-                database.installmentPlanDao()
+                database.installmentPlanDao(),
+                database.savingsDetailsDao(),
+                database.billDetailsDao()
             )
             viewModel = QuickParseViewModel(repository, testDispatcher)
 

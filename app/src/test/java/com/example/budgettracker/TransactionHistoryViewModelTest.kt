@@ -48,7 +48,9 @@ class TransactionHistoryViewModelTest {
             accountDao = database.accountDao(),
             transactionDao = database.transactionDao(),
             loanDetailsDao = database.loanDetailsDao(),
-            installmentPlanDao = database.installmentPlanDao()
+            installmentPlanDao = database.installmentPlanDao(),
+            savingsDetailsDao = database.savingsDetailsDao(),
+            billDetailsDao = database.billDetailsDao()
         )
 
         runBlocking {

@@ -5,12 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.budgettracker.data.local.dao.MonthlyTotals
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.AccountWithBalance
+import com.example.budgettracker.data.local.entity.AccountWithBillDetails
 import com.example.budgettracker.data.local.entity.AccountWithLoanDetails
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.repository.BudgetRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -30,10 +32,16 @@ class DashboardViewModel(
     val activeAccountsWithBalances: StateFlow<List<AccountWithBalance>> = repository.activeAccountsWithBalances
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val hiddenAccounts: StateFlow<List<AccountEntity>> = repository.hiddenAccounts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val recentTransactions: StateFlow<List<TransactionEntity>> = repository.getRecentTransactions(20)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val loanAccounts: StateFlow<List<AccountWithLoanDetails>> = repository.getAllActiveLoanAccounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val billAccounts: StateFlow<List<AccountWithBillDetails>> = repository.getAllActiveBillAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val activeInstallmentPlans: StateFlow<List<InstallmentPlanEntity>> = repository.activeInstallmentPlans
@@ -63,7 +71,36 @@ class DashboardViewModel(
         }
     }
 
-    fun saveAccount(account: AccountEntity, loanDetails: LoanAccountDetailsEntity? = null, onComplete: () -> Unit = {}) {
+    fun updateNetWorthInclusion(accountId: Long, include: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            repository.updateNetWorthInclusion(accountId, include)
+        }
+    }
+
+    fun getTransactionsForAccount(accountId: Long): Flow<List<TransactionEntity>> =
+        repository.getTransactionsByAccount(accountId)
+
+    suspend fun getAccountById(accountId: Long): AccountEntity? =
+        repository.getAccountById(accountId)
+
+    suspend fun getLoanDetailsForAccount(accountId: Long): LoanAccountDetailsEntity? =
+        repository.getLoanDetailsByAccountId(accountId)
+
+    suspend fun getTransactionCountForAccount(accountId: Long): Int = repository.getTransactionCountByAccount(accountId)
+
+    suspend fun getSavingsDetailsForAccount(accountId: Long): com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity? =
+        repository.getSavingsDetailsByAccountId(accountId)
+
+    suspend fun getBillDetailsForAccount(accountId: Long): com.example.budgettracker.data.local.entity.BillAccountDetailsEntity? =
+        repository.getBillDetailsByAccountId(accountId)
+
+    fun saveAccount(
+        account: AccountEntity,
+        loanDetails: LoanAccountDetailsEntity? = null,
+        savingsDetails: com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity? = null,
+        billDetails: com.example.budgettracker.data.local.entity.BillAccountDetailsEntity? = null,
+        onComplete: () -> Unit = {}
+    ) {
         viewModelScope.launch(ioDispatcher) {
             val accountId = if (account.id == 0L) {
                 repository.insertAccount(account)
@@ -75,6 +112,14 @@ class DashboardViewModel(
             if (loanDetails != null) {
                 val detailsToSave = loanDetails.copy(accountId = accountId)
                 repository.insertLoanDetails(detailsToSave)
+            }
+            if (savingsDetails != null) {
+                val detailsToSave = savingsDetails.copy(accountId = accountId)
+                repository.insertSavingsDetails(detailsToSave)
+            }
+            if (billDetails != null) {
+                val detailsToSave = billDetails.copy(accountId = accountId)
+                repository.insertBillDetails(detailsToSave)
             }
             onComplete()
         }

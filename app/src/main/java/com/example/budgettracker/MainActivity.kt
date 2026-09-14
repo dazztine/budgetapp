@@ -31,7 +31,9 @@ class MainActivity : ComponentActivity() {
             accountDao = db.accountDao(),
             transactionDao = db.transactionDao(),
             loanDetailsDao = db.loanDetailsDao(),
-            installmentPlanDao = db.installmentPlanDao()
+            installmentPlanDao = db.installmentPlanDao(),
+            savingsDetailsDao = db.savingsDetailsDao(),
+            billDetailsDao = db.billDetailsDao()
         )
 
         val dashboardViewModel = DashboardViewModel(repository)

@@ -8,6 +8,7 @@ object BatchAccountSetupParser {
         "i", "have", "had", "got", "get", "right", "now", "my", "current", "account", "wallet",
         "balance", "is", "at", "pesos", "peso", "p", "php", "in", "has", "with", "the", "value",
         "there", "here", "on", "me", "just", "only", "already", "saved", "total", "for", "a", "an",
+        "that", "this", "these", "those",
         "meron", "akong", "may", "mayroon", "pondo", "pera", "sa", "kay", "ko", "mga", "nito", "natin"
     )
 
@@ -93,24 +94,17 @@ object BatchAccountSetupParser {
 
             // Construct final display name
             val finalName = if (matchedPresetName != null) {
-                // Remove setup filler words around preset name
+                // Preset matched: only accept valid financial modifiers (e.g. "BDO Savings"), never conversational words
+                val validModifiers = setOf("savings", "checking", "payroll", "credit", "card", "debit", "wallet")
                 val nonPresetTokens = cleanStr.split(" ")
                     .filter { !it.equals(matchedPresetName, ignoreCase = true) }
                     .map { it.lowercase() }
+                    .filter { validModifiers.contains(it) }
 
-                val nonFillerTokens = nonPresetTokens.filter { !FILLER_WORDS.contains(it) }
-
-                if (nonFillerTokens.isEmpty()) {
-                    // Entire sentence was setup filler around preset name -> return canonical preset name (e.g. "GCash")
+                if (nonPresetTokens.isEmpty()) {
                     matchedPresetName
                 } else {
-                    // Additional meaningful brand modifier present (e.g., "BDO Savings")
-                    cleanStr.split(" ")
-                        .filter { !FILLER_WORDS.contains(it.lowercase()) || it.equals(matchedPresetName, ignoreCase = true) }
-                        .joinToString(" ") { token ->
-                            if (token.equals(matchedPresetName, ignoreCase = true)) matchedPresetName
-                            else token.replaceFirstChar(Char::titlecase)
-                        }.trim().ifBlank { matchedPresetName }
+                    matchedPresetName + " " + nonPresetTokens.joinToString(" ") { it.replaceFirstChar(Char::titlecase) }
                 }
             } else {
                 // No preset matched: strip filler words from cleanStr

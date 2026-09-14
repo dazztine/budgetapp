@@ -26,5 +26,6 @@ data class ParsedTransaction(
     val toAccountName: String? = null,
     val category: String,
     val title: String,
+    val totalInstallments: Int? = null,
     val validationErrors: List<String> = emptyList()
 )

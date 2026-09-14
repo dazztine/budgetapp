@@ -1,15 +1,20 @@
 package com.example.budgettracker.data.repository
 
 import com.example.budgettracker.data.local.dao.AccountDao
+import com.example.budgettracker.data.local.dao.BillDetailsDao
 import com.example.budgettracker.data.local.dao.InstallmentPlanDao
 import com.example.budgettracker.data.local.dao.LoanDetailsDao
 import com.example.budgettracker.data.local.dao.MonthlyTotals
+import com.example.budgettracker.data.local.dao.SavingsDetailsDao
 import com.example.budgettracker.data.local.dao.TransactionDao
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.AccountWithBalance
+import com.example.budgettracker.data.local.entity.AccountWithBillDetails
 import com.example.budgettracker.data.local.entity.AccountWithLoanDetails
+import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.TransactionType
 import kotlinx.coroutines.flow.Flow
@@ -18,12 +23,15 @@ class BudgetRepository(
     private val accountDao: AccountDao,
     private val transactionDao: TransactionDao,
     private val loanDetailsDao: LoanDetailsDao,
-    private val installmentPlanDao: InstallmentPlanDao
+    private val installmentPlanDao: InstallmentPlanDao,
+    private val savingsDetailsDao: SavingsDetailsDao,
+    private val billDetailsDao: BillDetailsDao
 ) {
     // Accounts
     val activeAccountsWithBalances: Flow<List<AccountWithBalance>> = accountDao.getAllActiveWithBalances()
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAll()
     val activeAccounts: Flow<List<AccountEntity>> = accountDao.getAllActive()
+    val hiddenAccounts: Flow<List<AccountEntity>> = accountDao.getAllHiddenAccounts()
     val totalNetWorth: Flow<Long> = accountDao.getTotalNetWorth()
     val activeAccountCount: Flow<Int> = accountDao.getActiveAccountCount()
 
@@ -36,6 +44,9 @@ class BudgetRepository(
     suspend fun insertAccounts(accounts: List<AccountEntity>): List<Long> = accountDao.insertAll(accounts)
 
     suspend fun updateAccount(account: AccountEntity): Int = accountDao.update(account)
+
+    suspend fun updateNetWorthInclusion(accountId: Long, include: Boolean): Int =
+        accountDao.updateNetWorthInclusion(accountId, include)
 
     suspend fun softDeleteAccount(id: Long): Int = accountDao.softDelete(id)
 
@@ -59,6 +70,7 @@ class BudgetRepository(
     fun getRecentTransactions(limit: Int = 20): Flow<List<TransactionEntity>> = transactionDao.getRecent(limit)
 
     fun getTransactionsByAccount(accountId: Long): Flow<List<TransactionEntity>> = transactionDao.getByAccount(accountId)
+    suspend fun getTransactionCountByAccount(accountId: Long): Int = transactionDao.getCountByAccount(accountId)
 
     fun getMonthlyTotals(startTime: Long, endTime: Long): Flow<MonthlyTotals> = transactionDao.getMonthlyTotals(startTime, endTime)
 
@@ -93,6 +105,30 @@ class BudgetRepository(
 
     fun getAllActiveLoanAccounts(): Flow<List<AccountWithLoanDetails>> = accountDao.getAllActiveLoanAccounts()
 
+    // Savings Account Details
+    suspend fun insertSavingsDetails(details: SavingsAccountDetailsEntity): Long = savingsDetailsDao.insert(details)
+
+    suspend fun updateSavingsDetails(details: SavingsAccountDetailsEntity): Int = savingsDetailsDao.update(details)
+
+    suspend fun deleteSavingsDetails(details: SavingsAccountDetailsEntity): Int = savingsDetailsDao.delete(details)
+
+    suspend fun getSavingsDetailsByAccountId(accountId: Long): SavingsAccountDetailsEntity? = savingsDetailsDao.getByAccountId(accountId)
+
+    fun getSavingsDetailsByAccountIdFlow(accountId: Long): Flow<SavingsAccountDetailsEntity?> = savingsDetailsDao.getByAccountIdFlow(accountId)
+
+    // Bill Account Details
+    suspend fun insertBillDetails(details: BillAccountDetailsEntity): Long = billDetailsDao.insert(details)
+
+    suspend fun updateBillDetails(details: BillAccountDetailsEntity): Int = billDetailsDao.update(details)
+
+    suspend fun deleteBillDetails(details: BillAccountDetailsEntity): Int = billDetailsDao.delete(details)
+
+    suspend fun getBillDetailsByAccountId(accountId: Long): BillAccountDetailsEntity? = billDetailsDao.getByAccountId(accountId)
+
+    fun getBillDetailsByAccountIdFlow(accountId: Long): Flow<BillAccountDetailsEntity?> = billDetailsDao.getByAccountIdFlow(accountId)
+
+    fun getAllActiveBillAccounts(): Flow<List<AccountWithBillDetails>> = accountDao.getAllActiveBillAccounts()
+
     // Installment Plans
     suspend fun insertInstallmentPlan(plan: InstallmentPlanEntity): Long = installmentPlanDao.insert(plan)
 
@@ -105,22 +141,49 @@ class BudgetRepository(
     fun getInstallmentPlansByAccount(accountId: Long): Flow<List<InstallmentPlanEntity>> =
         installmentPlanDao.getByAccountId(accountId)
 
+    fun getTransactionsByInstallmentPlan(planId: Long): Flow<List<TransactionEntity>> =
+        transactionDao.getByInstallmentPlan(planId)
+
+    suspend fun recordInstallmentPayment(transaction: TransactionEntity, planId: Long): Long {
+        val plan = installmentPlanDao.getById(planId)
+        val insertedId = transactionDao.insert(transaction.copy(installmentPlanId = planId))
+        if (plan != null) {
+            val updated = plan.copy(
+                installmentsPaid = plan.installmentsPaid + 1,
+                remainingBalance = (plan.remainingBalance - transaction.amount).coerceAtLeast(0L),
+                updatedAt = System.currentTimeMillis()
+            )
+            installmentPlanDao.update(updated)
+        }
+        return insertedId
+    }
+
     val activeInstallmentPlans: Flow<List<InstallmentPlanEntity>> = installmentPlanDao.getAllActive()
 
     // Direct Data Extraction & Deletion for Backup/Restore
     suspend fun getAllAccountsDirect(): List<AccountEntity> = accountDao.getAllDirect()
     suspend fun getAllTransactionsDirect(): List<TransactionEntity> = transactionDao.getAllDirect()
     suspend fun getAllLoanDetailsDirect(): List<LoanAccountDetailsEntity> = loanDetailsDao.getAllDirect()
+    suspend fun getAllSavingsDetailsDirect(): List<SavingsAccountDetailsEntity> = savingsDetailsDao.getAllDirect()
+    suspend fun getAllBillDetailsDirect(): List<BillAccountDetailsEntity> = billDetailsDao.getAllDirect()
     suspend fun getAllInstallmentPlansDirect(): List<InstallmentPlanEntity> = installmentPlanDao.getAllDirect()
 
     suspend fun insertLoanDetailsList(detailsList: List<LoanAccountDetailsEntity>): List<Long> =
         loanDetailsDao.insertAll(detailsList)
 
+    suspend fun insertSavingsDetailsList(detailsList: List<SavingsAccountDetailsEntity>): List<Long> =
+        savingsDetailsDao.insertAll(detailsList)
+
+    suspend fun insertBillDetailsList(detailsList: List<BillAccountDetailsEntity>): List<Long> =
+        billDetailsDao.insertAll(detailsList)
+
     suspend fun clearAllData() {
         // Order matters for Foreign Key constraints
+        transactionDao.deleteAll()
         installmentPlanDao.deleteAll()
         loanDetailsDao.deleteAll()
-        transactionDao.deleteAll()
+        savingsDetailsDao.deleteAll()
+        billDetailsDao.deleteAll()
         accountDao.deleteAll()
     }
 }

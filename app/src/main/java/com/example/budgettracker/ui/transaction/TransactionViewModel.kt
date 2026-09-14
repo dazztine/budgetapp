@@ -63,7 +63,11 @@ class TransactionViewModel(
     private val _saveState = MutableStateFlow<SaveResult>(SaveResult.Idle)
     val saveState: StateFlow<SaveResult> = _saveState.asStateFlow()
 
-    private var editingTransactionId: Long? = null
+    private val _editingTransactionId = MutableStateFlow<Long?>(null)
+    val editingTransactionId: StateFlow<Long?> = _editingTransactionId.asStateFlow()
+
+    private val _isEditing = MutableStateFlow(false)
+    val isEditing: StateFlow<Boolean> = _isEditing.asStateFlow()
 
     // Calculator Expression Evaluation
     private var pendingOperator: String? = null
@@ -256,7 +260,8 @@ class TransactionViewModel(
     }
 
     fun loadTransactionForEdit(transaction: TransactionEntity) {
-        editingTransactionId = transaction.id
+        _editingTransactionId.value = transaction.id
+        _isEditing.value = transaction.id != 0L
         _selectedType.value = transaction.type
         _selectedAccountId.value = transaction.accountId
         _selectedToAccountId.value = transaction.toAccountId
@@ -298,9 +303,10 @@ class TransactionViewModel(
 
         val title = _titleInput.value.trim().ifEmpty { type.name }
         val category = _categoryInput.value.trim().ifEmpty { "General" }
+        val currentEditId = _editingTransactionId.value
 
         val transaction = TransactionEntity(
-            id = editingTransactionId ?: 0L,
+            id = currentEditId ?: 0L,
             type = type,
             accountId = accountId,
             toAccountId = if (type == TransactionType.TRANSFER) toAccountId else null,
@@ -314,7 +320,7 @@ class TransactionViewModel(
 
         viewModelScope.launch(ioDispatcher) {
             try {
-                if (editingTransactionId == null || editingTransactionId == 0L) {
+                if (currentEditId == null || currentEditId == 0L) {
                     repository.insertTransaction(transaction)
 
                     // If INSTALLMENT type, automatically create InstallmentPlanEntity
@@ -360,7 +366,8 @@ class TransactionViewModel(
         _totalInstallmentsInput.value = "6"
         _timestamp.value = System.currentTimeMillis()
         _saveState.value = SaveResult.Idle
-        editingTransactionId = null
+        _editingTransactionId.value = null
+        _isEditing.value = false
         pendingOperator = null
         storedOperand = null
     }

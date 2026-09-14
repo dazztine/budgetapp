@@ -39,6 +39,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE accountId = :accountId OR toAccountId = :accountId ORDER BY timestamp DESC, id DESC")
     fun getByAccount(accountId: Long): Flow<List<TransactionEntity>>
 
+    @Query("SELECT COUNT(*) FROM transactions WHERE accountId = :accountId OR toAccountId = :accountId")
+    suspend fun getCountByAccount(accountId: Long): Int
+
     @Query("SELECT * FROM transactions WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp DESC, id DESC")
     fun getByDateRange(startTime: Long, endTime: Long): Flow<List<TransactionEntity>>
 
@@ -95,6 +98,9 @@ interface TransactionDao {
         startTime: Long? = null,
         endTime: Long? = null
     ): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions WHERE installmentPlanId = :planId ORDER BY timestamp DESC, id DESC")
+    fun getByInstallmentPlan(planId: Long): Flow<List<TransactionEntity>>
 
     @Query("DELETE FROM transactions")
     suspend fun deleteAll(): Int

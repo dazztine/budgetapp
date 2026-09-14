@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Receipt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -72,6 +73,7 @@ fun CompactAccountSelector(
                             AccountType.BANK, AccountType.SAVINGS -> Icons.Outlined.AccountBalance
                             AccountType.E_WALLET -> Icons.Outlined.PhoneAndroid
                             AccountType.BNPL, AccountType.LOAN -> Icons.Outlined.CreditCard
+                            AccountType.BILL -> Icons.Outlined.Receipt
                             AccountType.ASSET -> Icons.Outlined.AccountBalance
                         }
 
@@ -109,7 +111,7 @@ fun CompactAccountSelector(
 
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        text = "${acc.name} – ${acc.type.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                                        text = "${acc.name} • ${acc.type.toDisplayLabel()}",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface,

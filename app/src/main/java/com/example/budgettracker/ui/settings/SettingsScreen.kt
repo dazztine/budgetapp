@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.example.budgettracker.data.export.CsvExporter
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.ui.backup.BackupRestoreDialog
+import com.example.budgettracker.ui.components.ThemePickerDialog
 import androidx.compose.runtime.collectAsState
 import com.example.budgettracker.ui.theme.ThemePreferences
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
@@ -159,60 +160,30 @@ fun SettingsScreen(
             )
 
             if (showThemeDialog) {
-                AlertDialog(
-                    onDismissRequest = { showThemeDialog = false },
-                    title = { Text("Choose Theme", fontWeight = FontWeight.Bold) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ThemeSetting.entries.forEach { option ->
-                                val label = when (option) {
-                                    ThemeSetting.FOLLOW_DEVICE -> "Follow Device"
-                                    ThemeSetting.LIGHT -> "Light (White default)"
-                                    ThemeSetting.DARK -> "Dark"
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .selectable(
-                                            selected = currentThemeSetting == option,
-                                            onClick = {
-                                                themePreferences?.setThemeSetting(option)
-                                                showThemeDialog = false
-                                            }
-                                        )
-                                        .padding(vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    RadioButton(
-                                        selected = currentThemeSetting == option,
-                                        onClick = {
-                                            themePreferences?.setThemeSetting(option)
-                                            showThemeDialog = false
-                                        }
-                                    )
-                                    Text(
-                                        text = label,
-                                        fontSize = 14.sp,
-                                        modifier = Modifier.padding(start = 8.dp)
-                                    )
-                                }
-                            }
-                        }
+                ThemePickerDialog(
+                    currentSetting = currentThemeSetting,
+                    onSettingSelected = { selected ->
+                        themePreferences?.setThemeSetting(selected)
                     },
-                    confirmButton = {
-                        TextButton(onClick = { showThemeDialog = false }) {
-                            Text("Done")
-                        }
-                    }
+                    onDismiss = { showThemeDialog = false }
                 )
+            }
+
+            val appVersion = remember {
+                try {
+                    val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                    pInfo.versionName ?: "1.2.0"
+                } catch (e: Exception) {
+                    "1.2.0"
+                }
             }
 
             SettingsItemRow(
                 icon = Icons.Outlined.Info,
                 title = "About",
-                subtitle = "App version 1.0.0",
+                subtitle = "App version $appVersion",
                 onClick = {
-                    Toast.makeText(context, "BudgetTracker v1.0.0 (Offline-First)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "BudgetTracker v$appVersion (Offline-First)", Toast.LENGTH_SHORT).show()
                 }
             )
         }

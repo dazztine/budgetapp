@@ -5,9 +5,12 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.budgettracker.data.local.AppDatabase
 import com.example.budgettracker.data.local.dao.AccountDao
+import com.example.budgettracker.data.local.dao.BillDetailsDao
 import com.example.budgettracker.data.local.dao.LoanDetailsDao
 import com.example.budgettracker.data.local.dao.TransactionDao
 import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.BillAmountType
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.AccountType
@@ -34,6 +37,7 @@ class DatabaseBalanceUnitTest {
     private lateinit var accountDao: AccountDao
     private lateinit var transactionDao: TransactionDao
     private lateinit var loanDetailsDao: LoanDetailsDao
+    private lateinit var billDetailsDao: BillDetailsDao
 
     @Before
     fun setup() {
@@ -46,6 +50,7 @@ class DatabaseBalanceUnitTest {
         accountDao = database.accountDao()
         transactionDao = database.transactionDao()
         loanDetailsDao = database.loanDetailsDao()
+        billDetailsDao = database.billDetailsDao()
     }
 
     @After
@@ -574,5 +579,56 @@ class DatabaseBalanceUnitTest {
         ).first()
         assertEquals(1, combined.size)
         assertEquals(t2, combined[0].id)
+    }
+
+    @Test
+    fun testBillAccountWithLargeAmountDueDoesNotAffectNetWorth() = runBlocking {
+        // 1. Create a bank account with positive balance of 50,000 PHP (5,000,000 centavos)
+        val bankId = accountDao.insert(
+            AccountEntity(
+                name = "BDO Savings",
+                type = AccountType.BANK,
+                initialBalance = 5_000_000L
+            )
+        )
+        val initialNetWorth = accountDao.getTotalNetWorth().first()
+        assertEquals(5_000_000L, initialNetWorth)
+
+        // 2. Create a BILL account with a large amount due (100,000 PHP / 10,000,000 centavos)
+        val billId = accountDao.insert(
+            AccountEntity(
+                name = "Meralco Electric",
+                type = AccountType.BILL,
+                initialBalance = 0L
+            )
+        )
+        billDetailsDao.insert(
+            BillAccountDetailsEntity(
+                accountId = billId,
+                dueDay = 15,
+                amountDue = 10_000_000L,
+                amountType = BillAmountType.FIXED
+            )
+        )
+
+        // 3. Assert net worth is strictly unchanged (Bill amountDue is an upcoming expense, NOT debt/liability)
+        val netWorthAfterBill = accountDao.getTotalNetWorth().first()
+        assertEquals(5_000_000L, netWorthAfterBill)
+
+        // 4. Even with an initialBalance or balance on the bill account, it must NOT add or subtract from Net Worth
+        val billWithBalanceId = accountDao.insert(
+            AccountEntity(
+                name = "PLDT Fiber",
+                type = AccountType.BILL,
+                initialBalance = 250_000L
+            )
+        )
+        val netWorthAfterBillWithBalance = accountDao.getTotalNetWorth().first()
+        assertEquals(5_000_000L, netWorthAfterBillWithBalance)
+
+        // 5. Assert that when loan accounts are queried, BILL accounts are NOT listed
+        val loanAccounts = accountDao.getAllActiveLoanAccounts().first()
+        assertTrue(loanAccounts.none { it.account.id == billId })
+        assertTrue(loanAccounts.none { it.account.id == billWithBalanceId })
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Receipt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +24,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -31,6 +34,7 @@ import com.example.budgettracker.data.local.entity.AccountWithBalance
 import com.example.budgettracker.data.local.entity.AccountWithLoanDetails
 import com.example.budgettracker.data.model.AccountType
 import com.example.budgettracker.ui.theme.ZincCornerRadius
+import com.example.budgettracker.ui.util.BrandLogoMapper
 import com.example.budgettracker.util.CurrencyUtils
 import com.example.budgettracker.util.LoanDateUtils
 import java.time.LocalDate
@@ -39,6 +43,7 @@ import java.time.LocalDate
 fun AccountCard(
     accountWithBalance: AccountWithBalance,
     loanDetails: AccountWithLoanDetails? = null,
+    isBalanceVisible: Boolean = true,
     onEditClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -47,10 +52,11 @@ fun AccountCard(
         AccountType.BANK, AccountType.SAVINGS -> Icons.Outlined.AccountBalance
         AccountType.E_WALLET -> Icons.Outlined.PhoneAndroid
         AccountType.BNPL, AccountType.LOAN -> Icons.Outlined.CreditCard
+        AccountType.BILL -> Icons.Outlined.Receipt
         AccountType.ASSET -> Icons.Outlined.AccountBalance
     }
 
-    val brandLogoRes = com.example.budgettracker.ui.util.BrandLogoMapper.getLogoResId(
+    val brandLogoRes = BrandLogoMapper.getLogoResId(
         accountWithBalance.presetId,
         accountWithBalance.name
     )
@@ -71,16 +77,16 @@ fun AccountCard(
                     .size(38.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(
-                        if (brandLogoRes != null) androidx.compose.ui.graphics.Color.Transparent
+                        if (brandLogoRes != null) Color.Transparent
                         else MaterialTheme.colorScheme.primaryContainer
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 if (brandLogoRes != null) {
                     Icon(
-                        painter = androidx.compose.ui.res.painterResource(id = brandLogoRes),
+                        painter = painterResource(id = brandLogoRes),
                         contentDescription = null,
-                        tint = androidx.compose.ui.graphics.Color.Unspecified,
+                        tint = Color.Unspecified,
                         modifier = Modifier.size(38.dp)
                     )
                 } else {
@@ -93,10 +99,10 @@ fun AccountCard(
                 }
             }
 
-            // Amount & Name Vertically Stacked (No horizontal squeeze)
+            // Amount & Name Vertically Stacked
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = CurrencyUtils.formatCentavosToPesos(accountWithBalance.currentBalance),
+                    text = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(accountWithBalance.currentBalance) else "₱ ••••••",
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (accountWithBalance.type == AccountType.LOAN || accountWithBalance.type == AccountType.BNPL) {
@@ -109,7 +115,7 @@ fun AccountCard(
                 )
 
                 Text(
-                    text = "${accountWithBalance.name} • ${accountWithBalance.type.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                    text = "${accountWithBalance.name} • ${accountWithBalance.type.toDisplayLabel()}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

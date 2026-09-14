@@ -97,7 +97,7 @@ private fun ParsedAccountItemRow(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = accountSetup.type.name,
+                            text = accountSetup.type.toDisplayLabel(),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

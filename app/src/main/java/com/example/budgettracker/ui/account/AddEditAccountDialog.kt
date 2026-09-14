@@ -1,27 +1,67 @@
 package com.example.budgettracker.ui.account
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Receipt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,291 +69,1095 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.budgettracker.R
 import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.BillAmountType
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity
 import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.ui.components.BalanceAdjustmentConfirmDialog
 import com.example.budgettracker.ui.theme.ZincCornerRadius
+import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+import com.example.budgettracker.ui.transaction.components.NumpadView
+import com.example.budgettracker.ui.util.BrandLogoMapper
 import com.example.budgettracker.util.CurrencyUtils
 import kotlin.math.abs
 
+enum class ModalCategory(val label: String, val icon: ImageVector) {
+    SAVINGS("Savings", Icons.Outlined.AccountBalance),
+    E_WALLET("E-Wallet", Icons.Outlined.PhoneAndroid),
+    LOAN_BNPL("Loan/BNPL", Icons.Outlined.CreditCard),
+    BILL("Bill", Icons.Outlined.Receipt),
+    OTHER("Other", Icons.Default.MoreHoriz)
+}
+
+data class PresetItem(
+    val id: String,
+    val name: String,
+    val defaultType: AccountType,
+    val category: ModalCategory
+)
+
+private val PRESET_ITEMS = listOf(
+    // Savings
+    PresetItem("bdo", "BDO", AccountType.SAVINGS, ModalCategory.SAVINGS),
+    PresetItem("bpi", "BPI", AccountType.SAVINGS, ModalCategory.SAVINGS),
+    PresetItem("unionbank", "UnionBank", AccountType.SAVINGS, ModalCategory.SAVINGS),
+
+    // E-Wallet
+    PresetItem("gcash", "GCash", AccountType.E_WALLET, ModalCategory.E_WALLET),
+    PresetItem("maya", "Maya", AccountType.E_WALLET, ModalCategory.E_WALLET),
+    PresetItem("grabpay", "GrabPay", AccountType.E_WALLET, ModalCategory.E_WALLET),
+    PresetItem("shopeepay", "ShopeePay", AccountType.E_WALLET, ModalCategory.E_WALLET),
+
+    // Loan/BNPL
+    PresetItem("spaylater", "SPayLater", AccountType.BNPL, ModalCategory.LOAN_BNPL),
+    PresetItem("homecredit", "Home Credit", AccountType.BNPL, ModalCategory.LOAN_BNPL),
+    PresetItem("atome", "Atome", AccountType.BNPL, ModalCategory.LOAN_BNPL),
+    PresetItem("billease", "BillEase", AccountType.BNPL, ModalCategory.LOAN_BNPL),
+
+    // Bill
+    PresetItem("meralco", "Meralco", AccountType.BILL, ModalCategory.BILL),
+    PresetItem("maynilad", "Maynilad", AccountType.BILL, ModalCategory.BILL),
+    PresetItem("pldt", "PLDT", AccountType.BILL, ModalCategory.BILL),
+
+    // Other
+    PresetItem("cash", "Cash", AccountType.CASH, ModalCategory.OTHER)
+)
+
+private enum class ModalStep {
+    PRESET_GRID,
+    DETAILS_FORM
+}
+
+data class PendingSaveData(
+    val account: AccountEntity,
+    val loanDetails: LoanAccountDetailsEntity?,
+    val savingsDetails: SavingsAccountDetailsEntity?,
+    val billDetails: BillAccountDetailsEntity?
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddEditAccountDialog(
     initialAccount: AccountEntity? = null,
     initialLoanDetails: LoanAccountDetailsEntity? = null,
+    initialSavingsDetails: SavingsAccountDetailsEntity? = null,
+    initialBillDetails: BillAccountDetailsEntity? = null,
     currentBalance: Long? = null,
     onDismiss: () -> Unit,
     onSave: (AccountEntity, LoanAccountDetailsEntity?) -> Unit = { _, _ -> },
+    onSaveFull: (AccountEntity, LoanAccountDetailsEntity?, SavingsAccountDetailsEntity?, BillAccountDetailsEntity?) -> Unit = { acc, loan, _, _ -> onSave(acc, loan) },
     onSaveWithAdjustment: (AccountEntity, LoanAccountDetailsEntity?, Long, Boolean) -> Unit = { acc, loan, _, _ -> onSave(acc, loan) },
+    onSaveWithAdjustmentFull: (AccountEntity, LoanAccountDetailsEntity?, SavingsAccountDetailsEntity?, BillAccountDetailsEntity?, Long, Boolean) -> Unit = { acc, loan, _, _, bal, adj -> onSaveWithAdjustment(acc, loan, bal, adj) },
     onSoftDelete: ((Long) -> Unit)? = null
 ) {
+    var currentStep by remember {
+        mutableStateOf(if (initialAccount == null) ModalStep.PRESET_GRID else ModalStep.DETAILS_FORM)
+    }
+
+    var selectedCategory by remember {
+        mutableStateOf(
+            when (initialAccount?.type) {
+                AccountType.SAVINGS, AccountType.BANK -> ModalCategory.SAVINGS
+                AccountType.E_WALLET -> ModalCategory.E_WALLET
+                AccountType.BNPL, AccountType.LOAN -> ModalCategory.LOAN_BNPL
+                AccountType.BILL -> ModalCategory.BILL
+                AccountType.CASH -> ModalCategory.OTHER
+                else -> ModalCategory.SAVINGS
+            }
+        )
+    }
+
+    var selectedPreset by remember {
+        mutableStateOf<PresetItem?>(
+            initialAccount?.presetId?.let { pid -> PRESET_ITEMS.find { it.id == pid } }
+        )
+    }
+
     var name by remember { mutableStateOf(initialAccount?.name ?: "") }
-    var selectedType by remember { mutableStateOf(initialAccount?.type ?: AccountType.E_WALLET) }
+    var selectedType by remember { mutableStateOf(initialAccount?.type ?: AccountType.SAVINGS) }
     var selectedPresetId by remember { mutableStateOf(initialAccount?.presetId ?: "") }
+
+    // Starting Balance defaults to actual value of 0.00
     var balanceInput by remember {
         mutableStateOf(
             if (currentBalance != null) {
                 val pesos = currentBalance / 100
                 val cents = currentBalance % 100
-                if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else pesos.toString()
+                if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else "$pesos.00"
             } else if (initialAccount != null) {
                 val pesos = initialAccount.initialBalance / 100
                 val cents = initialAccount.initialBalance % 100
-                if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else pesos.toString()
-            } else ""
+                if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else "$pesos.00"
+            } else "0.00"
         )
     }
 
-    // Loan details state
-    var cycleDay1 by remember { mutableStateOf(initialLoanDetails?.cycleDay1?.toString() ?: "") }
-    var cycleDay2 by remember { mutableStateOf(initialLoanDetails?.cycleDay2?.toString() ?: "") }
-    var minDueInput by remember { mutableStateOf(initialLoanDetails?.minimumAmountDue?.let { (it / 100).toString() } ?: "") }
+    // Bill Details expanded by default (true), Savings Details collapsed by default (false)
+    var isSavingsDetailsExpanded by remember { mutableStateOf(initialSavingsDetails != null) }
+    var isBillDetailsExpanded by remember { mutableStateOf(true) }
+    var isLoanDetailsExpanded by remember { mutableStateOf(true) }
 
-    var expandedType by remember { mutableStateOf(false) }
+    // Additional fields
+    var interestRateInput by remember { mutableStateOf(initialSavingsDetails?.interestRate?.toString() ?: "") }
+    var goalAmountInput by remember {
+        mutableStateOf(
+            initialSavingsDetails?.goalAmount?.let { (it / 100).toString() } ?: ""
+        )
+    }
+
+    var dueDayInput by remember {
+        mutableStateOf(
+            initialBillDetails?.dueDay?.toString()
+                ?: initialLoanDetails?.cycleDay1?.toString()
+                ?: "15"
+        )
+    }
+    var dueDay2Input by remember { mutableStateOf(initialLoanDetails?.cycleDay2?.toString() ?: "") }
+    var amountDueInput by remember {
+        mutableStateOf(
+            initialBillDetails?.amountDue?.let { (it / 100).toString() }
+                ?: initialLoanDetails?.minimumAmountDue?.let { (it / 100).toString() }
+                ?: ""
+        )
+    }
+    var billAmountType by remember {
+        mutableStateOf(
+            if (initialBillDetails?.amountType == BillAmountType.ESTIMATED) "Estimated" else "Fixed"
+        )
+    }
+
+    var isCalculatorVisible by remember { mutableStateOf(false) }
+    var expandedDueDayDropdown by remember { mutableStateOf(false) }
 
     // Adjustment confirmation prompt state
-    var pendingAccountSave by remember { mutableStateOf<Pair<AccountEntity, LoanAccountDetailsEntity?>?>(null) }
+    var pendingAccountSave by remember { mutableStateOf<PendingSaveData?>(null) }
     var pendingTargetBalCentavos by remember { mutableStateOf(0L) }
     var showAdjustmentPrompt by remember { mutableStateOf(false) }
 
     if (showAdjustmentPrompt && pendingAccountSave != null) {
-        val (acc, loan) = pendingAccountSave!!
-        val diff = pendingTargetBalCentavos - (currentBalance ?: 0L)
-
-        AlertDialog(
-            onDismissRequest = { showAdjustmentPrompt = false },
-            title = { Text("Log Balance Adjustment?", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Balance changed by ${if (diff > 0) "+" else ""}${CurrencyUtils.formatCentavosToPesos(diff)}.",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "Do you want to log this adjustment in your transaction history as a transaction record?",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "• Yes: Creates an ${if (diff > 0) "Income" else "Expense"} (Adjustment) transaction.\n• No: Silently updates stored account baseline.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        val pending = pendingAccountSave!!
+        BalanceAdjustmentConfirmDialog(
+            onConfirmYes = {
+                onSaveWithAdjustmentFull(pending.account, pending.loanDetails, pending.savingsDetails, pending.billDetails, pendingTargetBalCentavos, true)
+                showAdjustmentPrompt = false
+                onDismiss()
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onSaveWithAdjustment(acc, loan, pendingTargetBalCentavos, true)
-                        showAdjustmentPrompt = false
-                        onDismiss()
-                    }
-                ) {
-                    Text("Yes (Log Record)")
-                }
+            onConfirmNo = {
+                onSaveWithAdjustmentFull(pending.account, pending.loanDetails, pending.savingsDetails, pending.billDetails, pendingTargetBalCentavos, false)
+                showAdjustmentPrompt = false
+                onDismiss()
             },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        onSaveWithAdjustment(acc, loan, pendingTargetBalCentavos, false)
-                        showAdjustmentPrompt = false
-                        onDismiss()
-                    }
-                ) {
-                    Text("No (Silent Update)")
-                }
-            }
+            onDismiss = { showAdjustmentPrompt = false }
         )
     }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(ZincCornerRadius),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
-            modifier = Modifier.fillMaxWidth(0.95f)
+            modifier = Modifier
+                .fillMaxWidth(0.96f)
+                .fillMaxHeight(0.92f)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
             ) {
-                Text(
-                    text = if (initialAccount == null) "Add New Account" else "Edit Account",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                // 1. Account Name Field (First)
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Account Name") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(ZincCornerRadius),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // 2. Account Type Selector (Second)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = selectedType.name,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Account Type") },
-                        trailingIcon = { Text("▼", fontSize = 12.sp) },
-                        shape = RoundedCornerShape(ZincCornerRadius),
+                // Top Drag Handle Bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { expandedType = true }
-                    )
-
-                    DropdownMenu(
-                        expanded = expandedType,
-                        onDismissRequest = { expandedType = false },
-                        modifier = Modifier.fillMaxWidth(0.85f)
-                    ) {
-                        AccountType.values().forEach { type ->
-                            DropdownMenuItem(
-                                text = { Text(type.name) },
-                                onClick = {
-                                    selectedType = type
-                                    expandedType = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // 3. Balance Input Field (Third)
-                OutlinedTextField(
-                    value = balanceInput,
-                    onValueChange = { balanceInput = it },
-                    label = { Text(if (initialAccount == null) "Starting Balance (₱)" else "Account Balance (₱)") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(ZincCornerRadius),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // 4. Loan / BNPL Cycle Details (if LOAN or BNPL type selected)
-                if (selectedType == AccountType.LOAN || selectedType == AccountType.BNPL) {
-                    Text("Loan / BNPL Billing Cycle", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = cycleDay1,
-                            onValueChange = { cycleDay1 = it },
-                            label = { Text("Due Day 1") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(ZincCornerRadius),
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        OutlinedTextField(
-                            value = cycleDay2,
-                            onValueChange = { cycleDay2 = it },
-                            label = { Text("Due Day 2 (Opt)") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(ZincCornerRadius),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = minDueInput,
-                        onValueChange = { minDueInput = it },
-                        label = { Text("Min Amount Due (₱)") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(ZincCornerRadius),
-                        modifier = Modifier.fillMaxWidth()
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.outlineVariant)
                     )
                 }
 
-                // Dialog Action Buttons
+                // Modal Header
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (initialAccount != null && onSoftDelete != null) {
-                        OutlinedButton(
-                            onClick = {
-                                onSoftDelete(initialAccount.id)
-                                onDismiss()
-                            },
-                            shape = RoundedCornerShape(ZincCornerRadius),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            ),
-                            modifier = Modifier.weight(1f)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (currentStep == ModalStep.DETAILS_FORM && initialAccount == null) {
+                            IconButton(
+                                onClick = { currentStep = ModalStep.PRESET_GRID },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Back to Presets",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
+                        Text(
+                            text = if (initialAccount == null) "Add Account" else "Edit Account",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // STEP 1: PRESET GRID VIEW
+                if (currentStep == ModalStep.PRESET_GRID) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Category Pills Row (Horizontal Scroll)
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Delete", fontSize = 12.sp)
+                            items(ModalCategory.entries.toTypedArray()) { cat ->
+                                val isSelected = cat == selectedCategory
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(ZincSoftCornerRadius))
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        .clickable { selectedCategory = cat }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = cat.icon,
+                                            contentDescription = null,
+                                            tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp).padding(end = 4.dp)
+                                        )
+                                        Text(
+                                            text = cat.label,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "Presets",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+
+                        // Presets 2-Column Grid
+                        val categoryPresets = PRESET_ITEMS.filter { it.category == selectedCategory }
+                        val allItemsForGrid = categoryPresets + listOf<PresetItem?>(null) // null represents "Custom Account"
+                        val rowCount = (allItemsForGrid.size + 1) / 2
+
+                        for (rowIndex in 0 until rowCount) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                val item1 = allItemsForGrid.getOrNull(rowIndex * 2)
+                                val item2 = allItemsForGrid.getOrNull(rowIndex * 2 + 1)
+
+                                if (item1 != null) {
+                                    PresetGridCard(
+                                        preset = item1,
+                                        onClick = {
+                                            selectedPreset = item1
+                                            name = item1.name
+                                            selectedType = item1.defaultType
+                                            selectedPresetId = item1.id
+                                            currentStep = ModalStep.DETAILS_FORM
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else if (rowIndex * 2 < allItemsForGrid.size) {
+                                    CustomAccountGridCard(
+                                        onClick = {
+                                            selectedPreset = null
+                                            name = ""
+                                            selectedType = when (selectedCategory) {
+                                                ModalCategory.SAVINGS -> AccountType.SAVINGS
+                                                ModalCategory.E_WALLET -> AccountType.E_WALLET
+                                                ModalCategory.LOAN_BNPL -> AccountType.BNPL
+                                                ModalCategory.BILL -> AccountType.BILL
+                                                ModalCategory.OTHER -> AccountType.CASH
+                                            }
+                                            selectedPresetId = ""
+                                            currentStep = ModalStep.DETAILS_FORM
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+
+                                if (item2 != null) {
+                                    PresetGridCard(
+                                        preset = item2,
+                                        onClick = {
+                                            selectedPreset = item2
+                                            name = item2.name
+                                            selectedType = item2.defaultType
+                                            selectedPresetId = item2.id
+                                            currentStep = ModalStep.DETAILS_FORM
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else if (rowIndex * 2 + 1 < allItemsForGrid.size) {
+                                    CustomAccountGridCard(
+                                        onClick = {
+                                            selectedPreset = null
+                                            name = ""
+                                            selectedType = when (selectedCategory) {
+                                                ModalCategory.SAVINGS -> AccountType.SAVINGS
+                                                ModalCategory.E_WALLET -> AccountType.E_WALLET
+                                                ModalCategory.LOAN_BNPL -> AccountType.BNPL
+                                                ModalCategory.BILL -> AccountType.BILL
+                                                ModalCategory.OTHER -> AccountType.CASH
+                                            }
+                                            selectedPresetId = ""
+                                            currentStep = ModalStep.DETAILS_FORM
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        shape = RoundedCornerShape(ZincCornerRadius),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Cancel", fontSize = 12.sp)
-                    }
-
+                    // Fix #4: Disabled Add Account button on preset-grid screens
                     Button(
-                        onClick = {
-                            if (name.isBlank()) return@Button
-                            val targetBalCentavos = CurrencyUtils.parseInputToCentavos(balanceInput)
-                            val account = AccountEntity(
-                                id = initialAccount?.id ?: 0L,
-                                name = name.trim(),
-                                type = selectedType,
-                                presetId = selectedPresetId.ifEmpty { null },
-                                initialBalance = if (initialAccount == null) targetBalCentavos else initialAccount.initialBalance,
-                                displayOrder = initialAccount?.displayOrder ?: 0
-                            )
-
-                            val loanDetails = if (selectedType == AccountType.LOAN || selectedType == AccountType.BNPL) {
-                                val d1 = cycleDay1.toIntOrNull() ?: 15
-                                val d2 = cycleDay2.toIntOrNull()
-                                val minDue = CurrencyUtils.parseInputToCentavos(minDueInput)
-                                LoanAccountDetailsEntity(
-                                    accountId = initialAccount?.id ?: 0L,
-                                    cycleDay1 = d1,
-                                    cycleDay2 = d2,
-                                    minimumAmountDue = minDue,
-                                    totalRemainingBalance = targetBalCentavos,
-                                    reminderEnabled = true,
-                                    reminderDaysBefore = 7
-                                )
-                            } else null
-
-                            if (initialAccount != null && currentBalance != null && targetBalCentavos != currentBalance) {
-                                pendingAccountSave = Pair(account, loanDetails)
-                                pendingTargetBalCentavos = targetBalCentavos
-                                showAdjustmentPrompt = true
-                            } else {
-                                onSaveWithAdjustment(account, loanDetails, targetBalCentavos, false)
-                                onDismiss()
-                            }
-                        },
-                        shape = RoundedCornerShape(ZincCornerRadius),
+                        onClick = {},
+                        enabled = false,
+                        shape = RoundedCornerShape(ZincSoftCornerRadius),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                         ),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
                     ) {
-                        Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Add Account", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                // STEP 2: DETAILS FORM VIEW
+                if (currentStep == ModalStep.DETAILS_FORM) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // Fix #3: Selected Preset Hero Card at top (Tappable with chevron to return to Preset Grid)
+                        val displayName = selectedPreset?.name ?: name.ifBlank { "Custom Account" }
+                        val displayCategory = selectedCategory.label
+                        val logoRes = BrandLogoMapper.getLogoResId(selectedPresetId, displayName)
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(ZincCornerRadius))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(ZincCornerRadius))
+                                .clickable {
+                                    if (initialAccount == null) {
+                                        currentStep = ModalStep.PRESET_GRID
+                                    }
+                                }
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (logoRes != null) Color.Transparent else MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (logoRes != null) {
+                                            Icon(
+                                                painter = painterResource(id = logoRes),
+                                                contentDescription = null,
+                                                tint = Color.Unspecified,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = selectedCategory.icon,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    Column {
+                                        Text(
+                                            text = displayName,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = displayCategory,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = "Change Preset",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Account Details Header
+                        Text(
+                            text = "Account Details",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+
+                        // 1. Account Name Field (optional / editable) with clear X icon
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Account Name (optional)") },
+                            singleLine = true,
+                            trailingIcon = {
+                                if (name.isNotEmpty()) {
+                                    IconButton(onClick = { name = "" }) {
+                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(ZincCornerRadius),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // 2. Starting Balance Field (Fix #2: Tapping field itself OR calculator icon opens calculator; Fix #5: Defaults to ₱0.00)
+                        val formattedDisplayBalance = try {
+                            val centavos = CurrencyUtils.parseInputToCentavos(balanceInput)
+                            CurrencyUtils.formatCentavosToPesos(centavos)
+                        } catch (e: Exception) {
+                            "₱ $balanceInput"
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(ZincCornerRadius))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(ZincCornerRadius))
+                                .clickable { isCalculatorVisible = true }
+                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Starting Balance *",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = formattedDisplayBalance,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { isCalculatorVisible = true },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Calculate,
+                                        contentDescription = "Calculator",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // Accordion 1: Savings Details (Fix #1: Collapsed by default)
+                        if (selectedCategory == ModalCategory.SAVINGS) {
+                            AccordionCard(
+                                title = "Savings Details",
+                                icon = Icons.Outlined.AccountBalance,
+                                isExpanded = isSavingsDetailsExpanded,
+                                onToggle = { isSavingsDetailsExpanded = !isSavingsDetailsExpanded }
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = interestRateInput,
+                                        onValueChange = { interestRateInput = it },
+                                        label = { Text("Interest Rate (optional)") },
+                                        placeholder = { Text("e.g. 3.5") },
+                                        leadingIcon = { Text("%", fontWeight = FontWeight.Bold) },
+                                        trailingIcon = { Text("%", fontSize = 12.sp) },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(ZincCornerRadius),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    OutlinedTextField(
+                                        value = goalAmountInput,
+                                        onValueChange = { goalAmountInput = it },
+                                        label = { Text("Goal Amount (optional)") },
+                                        placeholder = { Text("e.g. 100,000") },
+                                        leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
+                                        trailingIcon = { Text("₱", fontSize = 12.sp) },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(ZincCornerRadius),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+
+                        // Accordion 2: Bill Details (Fix #1: EXPANDED by default)
+                        if (selectedCategory == ModalCategory.BILL) {
+                            AccordionCard(
+                                title = "Bill Details",
+                                icon = Icons.Outlined.Receipt,
+                                isExpanded = isBillDetailsExpanded,
+                                onToggle = { isBillDetailsExpanded = !isBillDetailsExpanded }
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Due Day Dropdown
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            OutlinedTextField(
+                                                value = dueDayInput,
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                label = { Text("Due Day *") },
+                                                trailingIcon = {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ExpandMore,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.clickable { expandedDueDayDropdown = true }
+                                                    )
+                                                },
+                                                shape = RoundedCornerShape(ZincCornerRadius),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { expandedDueDayDropdown = true }
+                                            )
+
+                                            DropdownMenu(
+                                                expanded = expandedDueDayDropdown,
+                                                onDismissRequest = { expandedDueDayDropdown = false }
+                                            ) {
+                                                (1..31).forEach { day ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(day.toString()) },
+                                                        onClick = {
+                                                            dueDayInput = day.toString()
+                                                            expandedDueDayDropdown = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // Amount Due Field
+                                        OutlinedTextField(
+                                            value = amountDueInput,
+                                            onValueChange = { amountDueInput = it },
+                                            label = { Text("Amount Due (optional)") },
+                                            placeholder = { Text("2,500.00") },
+                                            leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(ZincCornerRadius),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    // Amount Type Segmented Control
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Amount Type", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(ZincCornerRadius))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                .padding(2.dp)
+                                        ) {
+                                            val isFixed = billAmountType == "Fixed"
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (isFixed) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                                    .clickable { billAmountType = "Fixed" }
+                                                    .padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "Fixed",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (isFixed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (!isFixed) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                                    .clickable { billAmountType = "Estimated" }
+                                                    .padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "Estimated",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (!isFixed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Accordion 3: Loan/BNPL Cycle Details
+                        if (selectedCategory == ModalCategory.LOAN_BNPL) {
+                            AccordionCard(
+                                title = "Loan / BNPL Billing Cycle",
+                                icon = Icons.Outlined.CreditCard,
+                                isExpanded = isLoanDetailsExpanded,
+                                onToggle = { isLoanDetailsExpanded = !isLoanDetailsExpanded }
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = dueDayInput,
+                                            onValueChange = { dueDayInput = it },
+                                            label = { Text("Due Day 1 *") },
+                                            placeholder = { Text("15") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(ZincCornerRadius),
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        OutlinedTextField(
+                                            value = dueDay2Input,
+                                            onValueChange = { dueDay2Input = it },
+                                            label = { Text("Due Day 2 (Opt)") },
+                                            placeholder = { Text("30") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(ZincCornerRadius),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    OutlinedTextField(
+                                        value = amountDueInput,
+                                        onValueChange = { amountDueInput = it },
+                                        label = { Text("Min Amount Due (₱)") },
+                                        placeholder = { Text("0.00") },
+                                        leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(ZincCornerRadius),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Action Buttons Row (Add Account / Save Changes)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (initialAccount != null && onSoftDelete != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    onSoftDelete(initialAccount.id)
+                                    onDismiss()
+                                },
+                                shape = RoundedCornerShape(ZincSoftCornerRadius),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                ),
+                                modifier = Modifier
+                                    .weight(0.4f)
+                                    .height(48.dp)
+                            ) {
+                                Text("Delete", fontSize = 13.sp)
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                val finalName = name.trim().ifBlank { selectedPreset?.name ?: "Custom Account" }
+                                val targetBalCentavos = CurrencyUtils.parseInputToCentavos(balanceInput)
+
+                                val account = AccountEntity(
+                                    id = initialAccount?.id ?: 0L,
+                                    name = finalName,
+                                    type = selectedType,
+                                    presetId = selectedPresetId.ifEmpty { selectedPreset?.id },
+                                    initialBalance = if (initialAccount == null) targetBalCentavos else initialAccount.initialBalance,
+                                    displayOrder = initialAccount?.displayOrder ?: 0
+                                )
+
+                                val d1 = dueDayInput.toIntOrNull() ?: 15
+                                val d2 = dueDay2Input.toIntOrNull()
+                                val minDue = CurrencyUtils.parseInputToCentavos(amountDueInput)
+
+                                val loanDetails = if (selectedCategory == ModalCategory.LOAN_BNPL) {
+                                    LoanAccountDetailsEntity(
+                                        accountId = initialAccount?.id ?: 0L,
+                                        cycleDay1 = d1,
+                                        cycleDay2 = d2,
+                                        minimumAmountDue = minDue,
+                                        totalRemainingBalance = targetBalCentavos,
+                                        reminderEnabled = true,
+                                        reminderDaysBefore = 7
+                                    )
+                                } else null
+
+                                val savingsDetails = if (selectedCategory == ModalCategory.SAVINGS && (interestRateInput.isNotBlank() || goalAmountInput.isNotBlank())) {
+                                    SavingsAccountDetailsEntity(
+                                        accountId = initialAccount?.id ?: 0L,
+                                        interestRate = interestRateInput.toDoubleOrNull(),
+                                        goalAmount = if (goalAmountInput.isNotBlank()) CurrencyUtils.parseInputToCentavos(goalAmountInput) else null
+                                    )
+                                } else null
+
+                                val billDetails = if (selectedCategory == ModalCategory.BILL) {
+                                    BillAccountDetailsEntity(
+                                        accountId = initialAccount?.id ?: 0L,
+                                        dueDay = d1,
+                                        amountDue = if (amountDueInput.isNotBlank()) CurrencyUtils.parseInputToCentavos(amountDueInput) else null,
+                                        amountType = if (billAmountType == "Estimated") BillAmountType.ESTIMATED else BillAmountType.FIXED
+                                    )
+                                } else null
+
+                                if (initialAccount != null && currentBalance != null && targetBalCentavos != currentBalance) {
+                                    pendingAccountSave = PendingSaveData(account, loanDetails, savingsDetails, billDetails)
+                                    pendingTargetBalCentavos = targetBalCentavos
+                                    showAdjustmentPrompt = true
+                                } else {
+                                    onSaveWithAdjustmentFull(account, loanDetails, savingsDetails, billDetails, targetBalCentavos, false)
+                                    onDismiss()
+                                }
+                            },
+                            shape = RoundedCornerShape(ZincSoftCornerRadius),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Text(
+                                text = if (initialAccount == null) "Add Account" else "Save Changes",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                // Slide-up Numpad Calculator
+                AnimatedVisibility(
+                    visible = isCalculatorVisible,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it })
+                ) {
+                    NumpadView(
+                        onDigitClick = { digit ->
+                            if (balanceInput == "0.00" || balanceInput == "0") {
+                                balanceInput = digit
+                            } else {
+                                balanceInput += digit
+                            }
+                        },
+                        onDotClick = {
+                            if (!balanceInput.contains(".")) {
+                                balanceInput = if (balanceInput.isBlank()) "0." else "$balanceInput."
+                            }
+                        },
+                        onBackspaceClick = {
+                            if (balanceInput.isNotEmpty()) {
+                                balanceInput = balanceInput.dropLast(1)
+                                if (balanceInput.isEmpty()) balanceInput = "0.00"
+                            }
+                        },
+                        onClearClick = { balanceInput = "0.00" },
+                        onConfirmClick = { isCalculatorVisible = false },
+                        onDismiss = { isCalculatorVisible = false }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PresetGridCard(
+    preset: PresetItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val logoRes = BrandLogoMapper.getLogoResId(preset.id, preset.name)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .clip(RoundedCornerShape(ZincCornerRadius))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(ZincCornerRadius))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (logoRes != null) Color.Transparent else MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (logoRes != null) {
+                        Icon(
+                            painter = painterResource(id = logoRes),
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = preset.category.icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Text(
+                    text = preset.name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CustomAccountGridCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .clip(RoundedCornerShape(ZincCornerRadius))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(ZincCornerRadius))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Text(
+                    text = "Custom Account",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccordionCard(
+    title: String,
+    icon: ImageVector,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(ZincCornerRadius))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(ZincCornerRadius))
+            .padding(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp).padding(end = 6.dp)
+                    )
+                    Text(
+                        text = title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (isExpanded) {
+                content()
             }
         }
     }

@@ -19,6 +19,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -52,7 +54,9 @@ class TransactionViewModelTest {
             database.accountDao(),
             database.transactionDao(),
             database.loanDetailsDao(),
-            database.installmentPlanDao()
+            database.installmentPlanDao(),
+            database.savingsDetailsDao(),
+            database.billDetailsDao()
         )
         viewModel = TransactionViewModel(repository, testDispatcher)
 
@@ -175,5 +179,75 @@ class TransactionViewModelTest {
         assertEquals(600_000L, plan.totalPurchaseAmount)
         assertEquals(6, plan.totalInstallments)
         assertEquals(100_000L, plan.monthlyPaymentAmount)
+    }
+
+    @Test
+    fun testLoadTransactionForEditModifyAndSaveUpdatesBalanceAndHistory() = runBlocking {
+        // 1. Initial State: Account 1 initial balance is 10,000L (PHP 100.00).
+        val initialAccounts = repository.activeAccountsWithBalances.first()
+        val acc1Before = initialAccounts.first { it.id == account1Id }
+        assertEquals(10_000L, acc1Before.currentBalance)
+
+        // 2. Insert initial transaction: Expense of 2,500L (PHP 25.00)
+        viewModel.setAccountId(account1Id)
+        viewModel.setTransactionType(TransactionType.EXPENSE)
+        viewModel.onDigitInput("25")
+        viewModel.setCategory("Food")
+        viewModel.setTitle("Lunch")
+        val insertLatch = CountDownLatch(1)
+        viewModel.saveTransaction { insertLatch.countDown() }
+        insertLatch.await(5, TimeUnit.SECONDS)
+
+        val txListAfterInsert = repository.allTransactions.first()
+        assertEquals(1, txListAfterInsert.size)
+        val originalTx = txListAfterInsert[0]
+        assertEquals("Lunch", originalTx.title)
+        assertEquals("Food", originalTx.category)
+        assertEquals(2_500L, originalTx.amount)
+
+        // Balance should now be 10,000 - 2,500 = 7,500L
+        val acc1AfterInsert = repository.activeAccountsWithBalances.first().first { it.id == account1Id }
+        assertEquals(7_500L, acc1AfterInsert.currentBalance)
+
+        // 3. Load transaction for edit
+        viewModel.loadTransactionForEdit(originalTx)
+        assertTrue(viewModel.isEditing.value)
+        assertEquals(originalTx.id, viewModel.editingTransactionId.value)
+        assertEquals("25", viewModel.amountInput.value)
+        assertEquals("Lunch", viewModel.titleInput.value)
+        assertEquals("Food", viewModel.categoryInput.value)
+
+        // 4. Modify transaction: amount = 40.00 (4,000L), title = "Dinner Buffet", category = "Dining Out"
+        viewModel.onClear()
+        viewModel.onDigitInput("40")
+        viewModel.setTitle("Dinner Buffet")
+        viewModel.setCategory("Dining Out")
+
+        val updateLatch = CountDownLatch(1)
+        viewModel.saveTransaction { updateLatch.countDown() }
+        updateLatch.await(5, TimeUnit.SECONDS)
+
+        assertEquals(SaveResult.Success, viewModel.saveState.value)
+
+        // 5. Verify transaction history: Still 1 transaction, with modified attributes
+        val txListAfterUpdate = repository.allTransactions.first()
+        assertEquals(1, txListAfterUpdate.size)
+        val updatedTx = txListAfterUpdate[0]
+        assertEquals(originalTx.id, updatedTx.id)
+        assertEquals("Dinner Buffet", updatedTx.title)
+        assertEquals("Dining Out", updatedTx.category)
+        assertEquals(4_000L, updatedTx.amount)
+
+        // 6. Verify account balance: 10,000 - 4,000 = 6,000L (properly recalculated)
+        val acc1AfterUpdate = repository.activeAccountsWithBalances.first().first { it.id == account1Id }
+        assertEquals(6_000L, acc1AfterUpdate.currentBalance)
+
+        // 7. Reset form for next entry
+        viewModel.resetFormForNextEntry()
+        assertFalse(viewModel.isEditing.value)
+        assertNull(viewModel.editingTransactionId.value)
+        assertEquals("", viewModel.amountInput.value)
+        assertEquals("", viewModel.titleInput.value)
+        assertEquals("", viewModel.categoryInput.value)
     }
 }

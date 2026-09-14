@@ -23,6 +23,7 @@ data class AccountEntity(
     val presetId: String? = null,
     val initialBalance: Long = 0L,
     val isActive: Boolean = true,
+    val includeInNetWorth: Boolean = (type != AccountType.BILL),
     val displayOrder: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -48,6 +49,52 @@ data class LoanAccountDetailsEntity(
     val totalRemainingBalance: Long = 0L,
     val reminderEnabled: Boolean = true,
     val reminderDaysBefore: Int = 3
+)
+
+enum class BillAmountType {
+    FIXED,
+    ESTIMATED
+}
+
+@Entity(
+    tableName = "savings_account_details",
+    foreignKeys = [
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ]
+)
+data class SavingsAccountDetailsEntity(
+    @PrimaryKey
+    val accountId: Long,
+    val interestRate: Double? = null,
+    val goalAmount: Long? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "bill_account_details",
+    foreignKeys = [
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ]
+)
+data class BillAccountDetailsEntity(
+    @PrimaryKey
+    val accountId: Long,
+    val dueDay: Int,
+    val amountDue: Long? = null,
+    val amountType: BillAmountType = BillAmountType.FIXED,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(
@@ -94,11 +141,18 @@ data class InstallmentPlanEntity(
             parentColumns = ["id"],
             childColumns = ["toAccountId"],
             onDelete = ForeignKey.RESTRICT
+        ),
+        ForeignKey(
+            entity = InstallmentPlanEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["installmentPlanId"],
+            onDelete = ForeignKey.SET_NULL
         )
     ],
     indices = [
         Index(value = ["accountId"]),
         Index(value = ["toAccountId"]),
+        Index(value = ["installmentPlanId"]),
         Index(value = ["timestamp"]),
         Index(value = ["type", "category"]),
         Index(value = ["type", "title"])
@@ -112,6 +166,7 @@ data class TransactionEntity(
     val isAdjustment: Boolean = false,
     val accountId: Long,
     val toAccountId: Long? = null,
+    val installmentPlanId: Long? = null,
     val category: String,
     val title: String,
     val timestamp: Long,
@@ -126,6 +181,7 @@ data class AccountWithBalance(
     val presetId: String?,
     val initialBalance: Long,
     val isActive: Boolean,
+    val includeInNetWorth: Boolean = true,
     val displayOrder: Int,
     val currentBalance: Long
 )
@@ -138,4 +194,14 @@ data class AccountWithLoanDetails(
         entityColumn = "accountId"
     )
     val loanDetails: LoanAccountDetailsEntity?
+)
+
+data class AccountWithBillDetails(
+    @Embedded
+    val account: AccountEntity,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "accountId"
+    )
+    val billDetails: BillAccountDetailsEntity?
 )

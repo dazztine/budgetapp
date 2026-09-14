@@ -132,9 +132,18 @@ fun BackupRestoreDialog(
                                         isExporting = true
                                         val accounts = repository.getAllAccountsDirect()
                                         val loanDetails = repository.getAllLoanDetailsDirect()
+                                        val savingsDetails = repository.getAllSavingsDetailsDirect()
+                                        val billDetails = repository.getAllBillDetailsDirect()
                                         val installmentPlans = repository.getAllInstallmentPlansDirect()
                                         val transactions = repository.getAllTransactionsDirect()
-                                        exportedJson = BackupManager.exportToJson(accounts, loanDetails, installmentPlans, transactions)
+                                        exportedJson = BackupManager.exportToJson(
+                                            accounts = accounts,
+                                            loanDetails = loanDetails,
+                                            installmentPlans = installmentPlans,
+                                            transactions = transactions,
+                                            savingsDetails = savingsDetails,
+                                            billDetails = billDetails
+                                        )
                                         isExporting = false
                                     }
                                 },
@@ -251,7 +260,9 @@ fun BackupRestoreDialog(
                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text("Valid Backup Found (v${backup.version}):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         Text("• Accounts: ${backup.accounts.size}", fontSize = 12.sp)
-                                        Text("• Loan Details: ${backup.loanDetails.size}", fontSize = 12.sp)
+                                        if (backup.loanDetails.isNotEmpty()) Text("• Loan Details: ${backup.loanDetails.size}", fontSize = 12.sp)
+                                        if (backup.savingsDetails.isNotEmpty()) Text("• Savings Details: ${backup.savingsDetails.size}", fontSize = 12.sp)
+                                        if (backup.billDetails.isNotEmpty()) Text("• Bill Details: ${backup.billDetails.size}", fontSize = 12.sp)
                                         Text("• Installments: ${backup.installmentPlans.size}", fontSize = 12.sp)
                                         Text("• Transactions: ${backup.transactions.size}", fontSize = 12.sp)
                                     }

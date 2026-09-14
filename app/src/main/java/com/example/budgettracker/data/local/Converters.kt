@@ -16,4 +16,11 @@ class Converters {
 
     @TypeConverter
     fun toTransactionType(value: String?): TransactionType? = value?.let { TransactionType.valueOf(it) }
+
+    @TypeConverter
+    fun fromBillAmountType(value: com.example.budgettracker.data.local.entity.BillAmountType?): String? = value?.name
+
+    @TypeConverter
+    fun toBillAmountType(value: String?): com.example.budgettracker.data.local.entity.BillAmountType? =
+        value?.let { com.example.budgettracker.data.local.entity.BillAmountType.valueOf(it) }
 }

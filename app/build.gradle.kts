@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.budgettracker"
+        applicationId = "com.dazztine.kwago"
         minSdk = 26
         targetSdk = 37
         versionCode = 4

@@ -81,7 +81,8 @@ fun AccountDetailSheet(
     onEditClick: () -> Unit,
     onNetWorthToggle: (Boolean) -> Unit,
     onDeleteTransaction: (TransactionEntity) -> Unit = {},
-    onEditTransaction: (TransactionEntity) -> Unit = {}
+    onEditTransaction: (TransactionEntity) -> Unit = {},
+    isBalanceVisible: Boolean = true
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     var transactionToDelete by remember { mutableStateOf<TransactionEntity?>(null) }
@@ -195,7 +196,7 @@ fun AccountDetailSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = CurrencyUtils.formatCentavosToPesos(account.currentBalance),
+                        text = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(account.currentBalance) else "₱ ••••••",
                         fontSize = 26.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -209,12 +210,12 @@ fun AccountDetailSheet(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Remaining: ${CurrencyUtils.formatCentavosToPesos(loanDetails.totalRemainingBalance)}",
+                                text = if (isBalanceVisible) "Remaining: ${CurrencyUtils.formatCentavosToPesos(loanDetails.totalRemainingBalance)}" else "Remaining: ₱ ••••••",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Min Due: ${CurrencyUtils.formatCentavosToPesos(loanDetails.minimumAmountDue)}",
+                                text = if (isBalanceVisible) "Min Due: ${CurrencyUtils.formatCentavosToPesos(loanDetails.minimumAmountDue)}" else "Min Due: ₱ ••••••",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -232,7 +233,7 @@ fun AccountDetailSheet(
                             )
                             if (billDetails.amountDue != null) {
                                 Text(
-                                    text = "Amount Due: ${CurrencyUtils.formatCentavosToPesos(billDetails.amountDue)}",
+                                    text = if (isBalanceVisible) "Amount Due: ${CurrencyUtils.formatCentavosToPesos(billDetails.amountDue)}" else "Amount Due: ₱ ••••••",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -253,7 +254,7 @@ fun AccountDetailSheet(
                             }
                             if (savingsDetails.goalAmount != null) {
                                 Text(
-                                    text = "Goal: ${CurrencyUtils.formatCentavosToPesos(savingsDetails.goalAmount)}",
+                                    text = if (isBalanceVisible) "Goal: ${CurrencyUtils.formatCentavosToPesos(savingsDetails.goalAmount)}" else "Goal: ₱ ••••••",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

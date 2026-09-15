@@ -1,5 +1,6 @@
 package com.example.budgettracker.ui.history
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -47,8 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.TransactionType
+import com.example.budgettracker.ui.theme.AmberGlow
 import com.example.budgettracker.ui.theme.Green400
 import com.example.budgettracker.ui.theme.Green500
+import com.example.budgettracker.ui.theme.MidnightNavy
 import com.example.budgettracker.ui.theme.Orange500
 import com.example.budgettracker.ui.theme.Red400
 import com.example.budgettracker.ui.theme.Red500
@@ -76,13 +81,25 @@ fun TransactionHistoryScreen(
 
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy • h:mm a", Locale.getDefault()) }
 
+    BackHandler {
+        if (transactionToDelete != null) {
+            transactionToDelete = null
+        } else {
+            onNavigateBack()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Transaction History", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    TextButton(onClick = onNavigateBack) {
-                        Text("← Back", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 },
                 actions = {
@@ -126,14 +143,38 @@ fun TransactionHistoryScreen(
                     FilterChip(
                         selected = selectedType == null,
                         onClick = { viewModel.setSelectedType(null) },
-                        label = { Text("All Types", fontSize = 12.sp) }
+                        label = { Text("All Types", fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = AmberGlow,
+                            selectedLabelColor = MidnightNavy,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedType == null,
+                            borderColor = MaterialTheme.colorScheme.outline,
+                            selectedBorderColor = AmberGlow
+                        )
                     )
                 }
                 items(TransactionType.entries.toTypedArray()) { type ->
                     FilterChip(
                         selected = selectedType == type,
                         onClick = { viewModel.setSelectedType(if (selectedType == type) null else type) },
-                        label = { Text(type.name, fontSize = 12.sp) }
+                        label = { Text(type.name, fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = AmberGlow,
+                            selectedLabelColor = MidnightNavy,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedType == type,
+                            borderColor = MaterialTheme.colorScheme.outline,
+                            selectedBorderColor = AmberGlow
+                        )
                     )
                 }
             }
@@ -145,14 +186,38 @@ fun TransactionHistoryScreen(
                         FilterChip(
                             selected = selectedAccountId == null,
                             onClick = { viewModel.setSelectedAccount(null) },
-                            label = { Text("All Accounts", fontSize = 12.sp) }
+                            label = { Text("All Accounts", fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AmberGlow,
+                                selectedLabelColor = MidnightNavy,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selectedAccountId == null,
+                                borderColor = MaterialTheme.colorScheme.outline,
+                                selectedBorderColor = AmberGlow
+                            )
                         )
                     }
                     items(accounts) { acc ->
                         FilterChip(
                             selected = selectedAccountId == acc.id,
                             onClick = { viewModel.setSelectedAccount(if (selectedAccountId == acc.id) null else acc.id) },
-                            label = { Text(acc.name, fontSize = 12.sp) }
+                            label = { Text(acc.name, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AmberGlow,
+                                selectedLabelColor = MidnightNavy,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selectedAccountId == acc.id,
+                                borderColor = MaterialTheme.colorScheme.outline,
+                                selectedBorderColor = AmberGlow
+                            )
                         )
                     }
                 }

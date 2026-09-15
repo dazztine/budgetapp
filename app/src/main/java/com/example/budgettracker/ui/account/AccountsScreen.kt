@@ -1,6 +1,7 @@
 package com.example.budgettracker.ui.account
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -88,7 +89,7 @@ fun AccountsScreen(
     val hiddenAccounts by viewModel.hiddenAccounts.collectAsState()
     val netWorth by viewModel.netWorth.collectAsState()
 
-    var isBalanceVisible by remember { mutableStateOf(true) }
+    val isBalanceVisible by viewModel.isBalanceVisible.collectAsState()
     var selectedFilterCategory by remember { mutableStateOf("All") }
     var isHiddenSectionExpanded by remember { mutableStateOf(false) }
 
@@ -122,6 +123,18 @@ fun AccountsScreen(
         }
     }
 
+    BackHandler(enabled = selectedAccountForDetailSheet != null) {
+        selectedAccountForDetailSheet = null
+    }
+
+    BackHandler(enabled = showAccountLimitDialog) {
+        showAccountLimitDialog = false
+    }
+
+    BackHandler(enabled = showDeleteBlockedDialog != null) {
+        showDeleteBlockedDialog = null
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -147,7 +160,7 @@ fun AccountsScreen(
             NetWorthCard(
                 netWorth = netWorth,
                 isBalanceVisible = isBalanceVisible,
-                onToggleVisibility = { isBalanceVisible = !isBalanceVisible }
+                onToggleVisibility = { viewModel.toggleBalanceVisibility() }
             )
 
             // 2. Category Filter Pills
@@ -477,7 +490,8 @@ fun AccountsScreen(
             onEditTransaction = { tx ->
                 selectedAccountForDetailSheet = null
                 onEditTransaction(tx)
-            }
+            },
+            isBalanceVisible = isBalanceVisible
         )
     }
 }

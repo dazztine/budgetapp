@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val themePreferences = ThemePreferences(applicationContext)
+        val appPreferences = com.example.budgettracker.data.preference.AppPreferences(applicationContext)
 
         val db = AppDatabase.getInstance(applicationContext)
         val repository = BudgetRepository(
@@ -36,7 +37,7 @@ class MainActivity : ComponentActivity() {
             billDetailsDao = db.billDetailsDao()
         )
 
-        val dashboardViewModel = DashboardViewModel(repository)
+        val dashboardViewModel = DashboardViewModel(repository, appPreferences = appPreferences)
         val transactionViewModel = TransactionViewModel(repository)
         val quickParseViewModel = QuickParseViewModel(repository)
         val transactionHistoryViewModel = TransactionHistoryViewModel(repository)

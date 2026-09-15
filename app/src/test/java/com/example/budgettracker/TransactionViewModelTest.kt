@@ -10,9 +10,11 @@ import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.ui.transaction.SaveResult
 import com.example.budgettracker.ui.transaction.TransactionViewModel
+import com.example.budgettracker.util.CurrencyUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -249,5 +251,206 @@ class TransactionViewModelTest {
         assertEquals("", viewModel.amountInput.value)
         assertEquals("", viewModel.titleInput.value)
         assertEquals("", viewModel.categoryInput.value)
+    }
+
+    @Test
+    fun testPemdasOrderOfOperationsEvaluation() {
+        // Test addition only: 5+5+5+5 = 20
+        viewModel.onClear()
+        viewModel.onDigitInput("5")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("5")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("5")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("5")
+        assertEquals(2000L, viewModel.amountCentavos)
+        val success1 = viewModel.onEqualClick()
+        assertTrue(success1)
+        assertEquals("20", viewModel.amountInput.value)
+
+        // Test PEMDAS: 2 + 3 * 4 = 14 (not (2+3)*4 = 20)
+        viewModel.onClear()
+        viewModel.onDigitInput("2")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("3")
+        viewModel.onOperatorClick("×")
+        viewModel.onDigitInput("4")
+        assertEquals(1400L, viewModel.amountCentavos)
+        val success2 = viewModel.onEqualClick()
+        assertTrue(success2)
+        assertEquals("14", viewModel.amountInput.value)
+
+        // Test division precedence: 10 - 6 / 2 + 1 = 8
+        viewModel.onClear()
+        viewModel.onDigitInput("10")
+        viewModel.onOperatorClick("−")
+        viewModel.onDigitInput("6")
+        viewModel.onOperatorClick("÷")
+        viewModel.onDigitInput("2")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("1")
+        assertEquals(800L, viewModel.amountCentavos)
+        val success3 = viewModel.onEqualClick()
+        assertTrue(success3)
+        assertEquals("8", viewModel.amountInput.value)
+    }
+
+    @Test
+    fun testMultipleTokenDecimalsAndTrailingOperators() {
+        viewModel.onClear()
+        viewModel.onDigitInput("5")
+        viewModel.onDotInput()
+        viewModel.onDigitInput("5")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("2")
+        viewModel.onDotInput()
+        viewModel.onDigitInput("5")
+        viewModel.onOperatorClick("×")
+        viewModel.onDigitInput("2")
+        // 5.5 + (2.5 * 2) = 5.5 + 5.0 = 10.5
+        assertEquals(1050L, viewModel.amountCentavos)
+        viewModel.onEqualClick()
+        assertEquals("10.50", viewModel.amountInput.value)
+    }
+
+    @Test
+    fun testNumericOnlyPasteFiltering() {
+        viewModel.onClear()
+        // Paste currency string with symbols, commas, and text
+        viewModel.onPasteInput("Total: ₱1,250.75 php")
+        assertEquals("1250.75", viewModel.amountInput.value)
+        assertEquals(125075L, viewModel.amountCentavos)
+
+        // Paste multiple decimals strips secondary decimals
+        viewModel.onPasteInput("99.50.25")
+        assertEquals("99.5025", viewModel.amountInput.value)
+    }
+
+    @Test
+    fun testConfirmAmountResolvesExpression() {
+        viewModel.onClear()
+        viewModel.onDigitInput("100")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("50")
+        val success = viewModel.onConfirmAmount()
+        assertTrue(success)
+        assertEquals("150", viewModel.amountInput.value)
+        assertEquals(15000L, viewModel.amountCentavos)
+
+        // Blank confirm sets to 0
+        viewModel.onClear()
+        viewModel.onConfirmAmount()
+        assertEquals("0", viewModel.amountInput.value)
+    }
+
+    @Test
+    fun testExpressionCharacterLimit_blocksDigitsAndOperatorsAt20Chars() = runBlocking {
+        viewModel.onClear()
+        val emittedToasts = mutableListOf<String>()
+        val job = launch(testDispatcher) {
+            viewModel.toastMessage.collect { emittedToasts.add(it) }
+        }
+
+        // Type 10 digits
+        repeat(9) { viewModel.onDigitInput("1") }
+        viewModel.onOperatorClick("+")
+        // Now length is 10: "111111111+"
+        assertEquals(10, viewModel.amountInput.value.length)
+
+        // Type 9 more digits + 1 operator = 20 chars total
+        repeat(9) { viewModel.onDigitInput("2") }
+        viewModel.onOperatorClick("+")
+        // "111111111+222222222+" is 20 chars
+        assertEquals(20, viewModel.amountInput.value.length)
+        assertEquals(0, emittedToasts.size)
+
+        // Attempt to type a 21st character
+        viewModel.onDigitInput("5")
+        assertEquals(20, viewModel.amountInput.value.length)
+        assertEquals(listOf("Amount limit reached"), emittedToasts)
+
+        // Attempt to append another operator (blocked)
+        viewModel.onOperatorClick("+")
+        assertEquals(20, viewModel.amountInput.value.length)
+        // Note: replacing trailing operator is allowed because length does not increase
+        viewModel.onOperatorClick("−")
+        assertEquals(20, viewModel.amountInput.value.length)
+        assertEquals("111111111+222222222−", viewModel.amountInput.value)
+
+        // Dot input when at 20 chars is also blocked
+        viewModel.onDotInput()
+        assertEquals(20, viewModel.amountInput.value.length)
+        assertTrue(emittedToasts.contains("Amount limit reached"))
+
+        job.cancel()
+    }
+
+    @Test
+    fun testPasteInput_truncatesAt20Chars() = runBlocking {
+        viewModel.onClear()
+        val emittedToasts = mutableListOf<String>()
+        val job = launch(testDispatcher) {
+            viewModel.toastMessage.collect { emittedToasts.add(it) }
+        }
+
+        // Paste 25 numeric characters
+        viewModel.onPasteInput("1234567890123456789099999")
+        assertEquals(20, viewModel.amountInput.value.length)
+        assertEquals("12345678901234567890", viewModel.amountInput.value)
+        assertEquals(listOf("Amount limit reached"), emittedToasts)
+
+        job.cancel()
+    }
+
+    @Test
+    fun testAmountFormattingUnified_previewMatchesCalculatorDisplay() {
+        viewModel.onClear()
+        // Type 9 fives: 555555555
+        repeat(9) { viewModel.onDigitInput("5") }
+        assertEquals("555555555", viewModel.amountInput.value)
+
+        // Verify top-preview-equivalent formatted output matches calculator formatted output
+        val topPreviewFormatted = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+        val calculatorFormatted = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+
+        assertEquals("₱555,555,555", topPreviewFormatted)
+        assertEquals("₱555,555,555", calculatorFormatted)
+        assertEquals(topPreviewFormatted, calculatorFormatted)
+
+        // Verify centavos calculation does not suffer from Double.toString scientific notation (5.55555555E8)
+        assertEquals(55555555500L, viewModel.amountCentavos)
+
+        // Test with explicit decimal
+        viewModel.onClear()
+        viewModel.onDigitInput("1")
+        viewModel.onDigitInput("5")
+        viewModel.onDigitInput("0")
+        viewModel.onDotInput()
+        viewModel.onDigitInput("5")
+        viewModel.onDigitInput("0")
+        val decimalPreview = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+        val decimalCalc = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+        assertEquals("₱150.50", decimalPreview)
+        assertEquals("₱150.50", decimalCalc)
+        assertEquals(15050L, viewModel.amountCentavos)
+
+        // Test mid-expression with operator
+        viewModel.onClear()
+        viewModel.onDigitInput("1000")
+        viewModel.onOperatorClick("+")
+        viewModel.onDigitInput("250")
+        val exprPreview = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+        val exprCalc = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+        assertEquals("₱1000+250", exprPreview)
+        assertEquals("₱1000+250", exprCalc)
+
+        // Once calculated / confirmed, displays formatted with commas
+        viewModel.onEqualClick()
+        val resolvedPreview = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+        val resolvedCalc = CurrencyUtils.formatExpressionForDisplay(viewModel.amountInput.value)
+        assertEquals("₱1,250", resolvedPreview)
+        assertEquals("₱1,250", resolvedCalc)
+        assertEquals(125000L, viewModel.amountCentavos)
     }
 }

@@ -11,9 +11,12 @@ import com.example.budgettracker.util.CurrencyUtils
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -29,6 +32,13 @@ class TransactionViewModel(
     private val repository: BudgetRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
+
+    companion object {
+        const val MAX_EXPRESSION_LENGTH = 20
+    }
+
+    private val _toastMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val toastMessage: SharedFlow<String> = _toastMessage.asSharedFlow()
 
     val accounts: StateFlow<List<AccountEntity>> = repository.activeAccounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -92,28 +102,45 @@ class TransactionViewModel(
     val amountCentavos: Long
         get() {
             val eval = evaluateExpressionString(_amountInput.value)
-            return if (eval.first != null) CurrencyUtils.parseInputToCentavos(eval.first.toString()) else 0L
+            val result = eval.first ?: return 0L
+            val formatted = String.format(java.util.Locale.US, "%.2f", result)
+            return CurrencyUtils.parseInputToCentavos(formatted)
         }
 
     fun onDigitInput(digit: String) {
         val current = _amountInput.value
-        if (current.contains(".")) {
-            val parts = current.split(".")
-            if (parts.size > 1 && parts[1].length >= 2) {
+        if (current.length + digit.length > MAX_EXPRESSION_LENGTH) {
+            _toastMessage.tryEmit("Amount limit reached")
+            return
+        }
+        val activeToken = current.takeLastWhile { it !in listOf('+', '-', '*', '/', '÷', '×') }
+        if (activeToken.contains(".")) {
+            val decimals = activeToken.substringAfter(".")
+            if (decimals.length >= 2) {
                 return
             }
         }
-        val maxLen = if (current.contains(".")) 12 else 9
-        if (current.length >= maxLen) return
-        if (digit == "00" && current.isEmpty()) return
+        val maxLen = if (activeToken.contains(".")) 12 else 9
+        if (activeToken.length >= maxLen) return
+        if (digit == "00" && activeToken.isEmpty()) return
 
         _amountInput.value = current + digit
     }
 
     fun onDotInput() {
         val current = _amountInput.value
-        if (!current.endsWith(".")) {
-            _amountInput.value = "$current."
+        val activeToken = current.takeLastWhile { it !in listOf('+', '-', '*', '/', '÷', '×') }
+        if (!activeToken.contains(".")) {
+            val needed = if (activeToken.isEmpty()) 2 else 1
+            if (current.length + needed > MAX_EXPRESSION_LENGTH) {
+                _toastMessage.tryEmit("Amount limit reached")
+                return
+            }
+            if (activeToken.isEmpty()) {
+                _amountInput.value = "${current}0."
+            } else {
+                _amountInput.value = "$current."
+            }
         }
     }
 
@@ -129,15 +156,33 @@ class TransactionViewModel(
     }
 
     fun onOperatorClick(op: String) {
-        val current = _amountInput.value
-        val normalizedOp = when (op) {
-            "÷" -> "/"
-            "×" -> "*"
-            "−" -> "-"
+        val current = _amountInput.value.trim()
+        val displayOp = when (op) {
+            "/" -> "÷"
+            "*" -> "×"
+            "-" -> "−"
             else -> op
         }
-        if (current.isNotEmpty() && !current.endsWith("+") && !current.endsWith("-") && !current.endsWith("*") && !current.endsWith("/")) {
-            _amountInput.value = "$current$normalizedOp"
+        if (current.isEmpty()) {
+            if (displayOp == "−" || displayOp == "-") {
+                if (current.length + 1 > MAX_EXPRESSION_LENGTH) {
+                    _toastMessage.tryEmit("Amount limit reached")
+                    return
+                }
+                _amountInput.value = "-"
+            }
+            return
+        }
+        val lastChar = current.last()
+        if (lastChar in listOf('+', '-', '*', '/', '÷', '×', '−')) {
+            // Replace trailing operator (length remains identical)
+            _amountInput.value = current.dropLast(1) + displayOp
+        } else {
+            if (current.length + 1 > MAX_EXPRESSION_LENGTH) {
+                _toastMessage.tryEmit("Amount limit reached")
+                return
+            }
+            _amountInput.value = "$current$displayOp"
         }
     }
 
@@ -158,24 +203,51 @@ class TransactionViewModel(
         return true
     }
 
+    fun onConfirmAmount(): Boolean {
+        if (_amountInput.value.isBlank()) {
+            _amountInput.value = "0"
+            return true
+        }
+        return onEqualClick()
+    }
+
     fun onToggleSign() {
         val current = _amountInput.value
         if (current.startsWith("-")) {
             _amountInput.value = current.removePrefix("-")
         } else if (current.isNotEmpty() && current != "0") {
+            if (current.length + 1 > MAX_EXPRESSION_LENGTH) {
+                _toastMessage.tryEmit("Amount limit reached")
+                return
+            }
             _amountInput.value = "-$current"
         }
     }
 
     fun onPasteInput(pastedText: String) {
-        val numericOnly = pastedText.filter { it.isDigit() || it == '.' || it == '+' || it == '-' || it == '*' || it == '/' }
+        val sb = StringBuilder()
+        var hasDecimal = false
+        for (c in pastedText) {
+            if (c.isDigit()) {
+                sb.append(c)
+            } else if (c == '.' && !hasDecimal) {
+                sb.append(c)
+                hasDecimal = true
+            }
+        }
+        var numericOnly = sb.toString()
         if (numericOnly.isNotBlank()) {
+            if (numericOnly.length > MAX_EXPRESSION_LENGTH) {
+                numericOnly = numericOnly.take(MAX_EXPRESSION_LENGTH)
+                _toastMessage.tryEmit("Amount limit reached")
+            }
             _amountInput.value = numericOnly
         }
     }
 
     fun evaluateExpressionString(input: String): Pair<Double?, String?> {
-        val expr = input.trim()
+        var expr = input.trim()
+            .replace(",", "")
             .replace("÷", "/")
             .replace("×", "*")
             .replace("x", "*")
@@ -184,42 +256,88 @@ class TransactionViewModel(
 
         if (expr.isBlank()) return Pair(0.0, null)
 
-        if (expr.endsWith("+") || expr.endsWith("-") || expr.endsWith("*") || expr.endsWith("/")) {
-            return Pair(null, "Invalid mathematical expression: trailing operator")
+        // Drop any trailing operator for graceful evaluation
+        while (expr.endsWith("+") || expr.endsWith("-") || expr.endsWith("*") || expr.endsWith("/")) {
+            expr = expr.dropLast(1).trim()
         }
+        if (expr.isBlank()) return Pair(0.0, null)
 
         return try {
             val tokens = mutableListOf<String>()
-            var cur = StringBuilder()
-            for (c in expr) {
-                if (c in listOf('+', '-', '*', '/')) {
-                    if (cur.isNotEmpty()) {
-                        tokens.add(cur.toString().trim())
-                        cur = StringBuilder()
+            var i = 0
+            while (i < expr.length) {
+                val c = expr[i]
+                if (c.isWhitespace()) {
+                    i++
+                    continue
+                }
+                if (c == '-' && (tokens.isEmpty() || tokens.last() in listOf("+", "-", "*", "/"))) {
+                    val sb = StringBuilder("-")
+                    i++
+                    while (i < expr.length && (expr[i].isDigit() || expr[i] == '.')) {
+                        sb.append(expr[i])
+                        i++
                     }
+                    if (sb.length == 1) return Pair(null, "Invalid mathematical expression")
+                    tokens.add(sb.toString())
+                } else if (c in listOf('+', '-', '*', '/')) {
                     tokens.add(c.toString())
+                    i++
+                } else if (c.isDigit() || c == '.') {
+                    val sb = StringBuilder()
+                    while (i < expr.length && (expr[i].isDigit() || expr[i] == '.')) {
+                        sb.append(expr[i])
+                        i++
+                    }
+                    tokens.add(sb.toString())
                 } else {
-                    cur.append(c)
+                    return Pair(null, "Invalid character: $c")
                 }
             }
-            if (cur.isNotEmpty()) tokens.add(cur.toString().trim())
 
             if (tokens.isEmpty()) return Pair(null, "Invalid mathematical expression")
 
-            var result = tokens[0].toDoubleOrNull() ?: return Pair(null, "Invalid number: ${tokens[0]}")
-            var i = 1
-            while (i < tokens.size) {
-                val op = tokens[i]
-                if (i + 1 >= tokens.size) return Pair(null, "Incomplete expression")
-                val nextNum = tokens[i + 1].toDoubleOrNull() ?: return Pair(null, "Invalid number: ${tokens[i + 1]}")
-                result = when (op) {
-                    "+" -> result + nextNum
-                    "-" -> result - nextNum
-                    "*" -> result * nextNum
-                    "/" -> if (nextNum != 0.0) result / nextNum else return Pair(null, "Cannot divide by zero")
-                    else -> result
+            // Pass 1: PEMDAS Multiplication and Division
+            val pass1Tokens = mutableListOf<String>()
+            var idx = 0
+            while (idx < tokens.size) {
+                val token = tokens[idx]
+                if (token == "*" || token == "/") {
+                    if (pass1Tokens.isEmpty() || idx + 1 >= tokens.size) {
+                        return Pair(null, "Invalid mathematical expression")
+                    }
+                    val left = pass1Tokens.removeAt(pass1Tokens.lastIndex).toDoubleOrNull()
+                        ?: return Pair(null, "Invalid number")
+                    val right = tokens[idx + 1].toDoubleOrNull()
+                        ?: return Pair(null, "Invalid number: ${tokens[idx + 1]}")
+                    if (token == "/" && right == 0.0) {
+                        return Pair(null, "Cannot divide by zero")
+                    }
+                    val res = if (token == "*") left * right else left / right
+                    pass1Tokens.add(res.toString())
+                    idx += 2
+                } else {
+                    pass1Tokens.add(token)
+                    idx++
                 }
-                i += 2
+            }
+
+            // Pass 2: PEMDAS Addition and Subtraction
+            if (pass1Tokens.isEmpty()) return Pair(0.0, null)
+            var result = pass1Tokens[0].toDoubleOrNull()
+                ?: return Pair(null, "Invalid number: ${pass1Tokens[0]}")
+            var j = 1
+            while (j < pass1Tokens.size) {
+                val op = pass1Tokens[j]
+                if (j + 1 >= pass1Tokens.size) return Pair(null, "Incomplete expression")
+                val right = pass1Tokens[j + 1].toDoubleOrNull()
+                    ?: return Pair(null, "Invalid number: ${pass1Tokens[j + 1]}")
+                result = when (op) {
+                    "+" -> result + right
+                    "-" -> result - right
+                    else -> return Pair(null, "Unexpected operator: $op")
+                }
+                j += 2
             }
             Pair(result, null)
         } catch (e: Exception) {

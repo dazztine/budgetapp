@@ -1,0 +1,43 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="768"
+    android:viewportHeight="768">
+
+    <group
+        android:scaleX="1.68"
+        android:scaleY="1.68"
+        android:pivotX="384"
+        android:pivotY="373">
+
+        <!-- Left outer ring -->
+        <path
+            android:pathData="M 272.637 260.254 C 224.379 260.254 185.262 299.227 185.262 347.305 C 185.262 395.379 224.379 434.352 272.637 434.352 C 320.891 434.352 360.012 395.379 360.012 347.305 C 360.012 299.227 320.891 260.254 272.637 260.254 Z"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="45"
+            android:fillColor="#00000000" />
+
+        <!-- Right outer ring -->
+        <path
+            android:pathData="M 495.352 260.254 C 447.098 260.254 407.977 299.227 407.977 347.305 C 407.977 395.379 447.098 434.352 495.352 434.352 C 543.609 434.352 582.727 395.379 582.727 347.305 C 582.727 299.227 543.609 260.254 495.352 260.254 Z"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="45"
+            android:fillColor="#00000000" />
+
+        <!-- Left pupil -->
+        <path
+            android:pathData="M 272.640625 316.664062 C 255.042969 316.664062 240.777344 330.875 240.777344 348.410156 C 240.777344 365.941406 255.042969 380.15625 272.640625 380.15625 C 290.242188 380.15625 304.507812 365.941406 304.507812 348.410156 C 304.507812 330.875 290.242188 316.664062 272.640625 316.664062 Z"
+            android:fillColor="#FF000000" />
+
+        <!-- Right pupil -->
+        <path
+            android:pathData="M 495.359375 316.664062 C 477.757812 316.664062 463.492188 330.875 463.492188 348.410156 C 463.492188 365.941406 477.757812 380.15625 495.359375 380.15625 C 512.957031 380.15625 527.222656 365.941406 527.222656 348.410156 C 527.222656 330.875 512.957031 316.664062 495.359375 316.664062 Z"
+            android:fillColor="#FF000000" />
+
+        <!-- Beak -->
+        <path
+            android:pathData="M 383.941406 507.742188 L 352.96875 434.261719 L 414.914062 434.261719 Z"
+            android:fillColor="#FF000000" />
+
+    </group>
+</vector>

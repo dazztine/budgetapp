@@ -18,13 +18,27 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
-
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
+import com.example.budgettracker.data.preference.AppPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class DashboardViewModel(
     private val repository: BudgetRepository,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val appPreferences: AppPreferences? = null
 ) : ViewModel() {
+
+    private val _isBalanceVisible = MutableStateFlow(appPreferences?.isBalanceVisible?.value ?: true)
+    val isBalanceVisible: StateFlow<Boolean> = appPreferences?.isBalanceVisible ?: _isBalanceVisible.asStateFlow()
+
+    fun toggleBalanceVisibility() {
+        if (appPreferences != null) {
+            appPreferences.toggleBalanceVisibility()
+        } else {
+            _isBalanceVisible.value = !_isBalanceVisible.value
+        }
+    }
 
     val netWorth: StateFlow<Long> = repository.totalNetWorth
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)

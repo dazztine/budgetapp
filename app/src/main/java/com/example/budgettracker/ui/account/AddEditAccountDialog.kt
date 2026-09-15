@@ -26,7 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
@@ -48,8 +48,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,9 +67,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -263,7 +265,31 @@ fun AddEditAccountDialog(
         )
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    val context = LocalContext.current
+
+    val handleDismissOrBack = {
+        if (isCalculatorVisible) {
+            isCalculatorVisible = false
+        } else if (currentStep == ModalStep.DETAILS_FORM && initialAccount == null) {
+            currentStep = ModalStep.PRESET_GRID
+        } else {
+            onDismiss()
+        }
+    }
+
+    Dialog(onDismissRequest = handleDismissOrBack) {
+        BackHandler(enabled = isCalculatorVisible) {
+            isCalculatorVisible = false
+        }
+
+        BackHandler(enabled = !isCalculatorVisible && currentStep == ModalStep.DETAILS_FORM && initialAccount == null) {
+            currentStep = ModalStep.PRESET_GRID
+        }
+
+        BackHandler(enabled = !isCalculatorVisible && (currentStep == ModalStep.PRESET_GRID || initialAccount != null)) {
+            onDismiss()
+        }
+
         Surface(
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -308,9 +334,9 @@ fun AddEditAccountDialog(
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.ArrowBack,
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = "Back to Presets",
-                                    tint = MaterialTheme.colorScheme.onSurface
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Spacer(modifier = Modifier.width(4.dp))
@@ -593,12 +619,7 @@ fun AddEditAccountDialog(
                         )
 
                         // 2. Starting Balance Field (Fix #2: Tapping field itself OR calculator icon opens calculator; Fix #5: Defaults to ₱0.00)
-                        val formattedDisplayBalance = try {
-                            val centavos = CurrencyUtils.parseInputToCentavos(balanceInput)
-                            CurrencyUtils.formatCentavosToPesos(centavos)
-                        } catch (e: Exception) {
-                            "₱ $balanceInput"
-                        }
+                        val formattedDisplayBalance = CurrencyUtils.formatExpressionForDisplay(balanceInput)
 
                         Box(
                             modifier = Modifier
@@ -944,17 +965,26 @@ fun AddEditAccountDialog(
                     enter = slideInVertically(initialOffsetY = { it }),
                     exit = slideOutVertically(targetOffsetY = { it })
                 ) {
+                    val clipboardManager = LocalClipboardManager.current
                     NumpadView(
+                        amountExpression = balanceInput,
                         onDigitClick = { digit ->
-                            if (balanceInput == "0.00" || balanceInput == "0") {
-                                balanceInput = digit
-                            } else {
-                                balanceInput += digit
+                            val current = if (balanceInput == "0.00" || balanceInput == "0") "" else balanceInput
+                            if (current.length + digit.length > 20) {
+                                Toast.makeText(context, "Amount limit reached", Toast.LENGTH_SHORT).show()
+                                return@NumpadView
                             }
+                            balanceInput = if (current.isEmpty()) digit else current + digit
                         },
                         onDotClick = {
                             if (!balanceInput.contains(".")) {
-                                balanceInput = if (balanceInput.isBlank()) "0." else "$balanceInput."
+                                val needed = if (balanceInput.isBlank() || balanceInput == "0.00" || balanceInput == "0") 2 else 1
+                                val current = if (balanceInput == "0.00" || balanceInput == "0") "" else balanceInput
+                                if (current.length + needed > 20) {
+                                    Toast.makeText(context, "Amount limit reached", Toast.LENGTH_SHORT).show()
+                                    return@NumpadView
+                                }
+                                balanceInput = if (current.isBlank()) "0." else "$current."
                             }
                         },
                         onBackspaceClick = {
@@ -965,6 +995,25 @@ fun AddEditAccountDialog(
                         },
                         onClearClick = { balanceInput = "0.00" },
                         onConfirmClick = { isCalculatorVisible = false },
+                        onPasteClick = {
+                            val text = clipboardManager.getText()?.text
+                            if (!text.isNullOrBlank()) {
+                                val sb = StringBuilder()
+                                var hasDecimal = false
+                                for (c in text) {
+                                    if (c.isDigit()) sb.append(c)
+                                    else if (c == '.' && !hasDecimal) { sb.append(c); hasDecimal = true }
+                                }
+                                var numericOnly = sb.toString()
+                                if (numericOnly.isNotBlank()) {
+                                    if (numericOnly.length > 20) {
+                                        numericOnly = numericOnly.take(20)
+                                        Toast.makeText(context, "Amount limit reached", Toast.LENGTH_SHORT).show()
+                                    }
+                                    balanceInput = numericOnly
+                                }
+                            }
+                        },
                         onDismiss = { isCalculatorVisible = false }
                     )
                 }

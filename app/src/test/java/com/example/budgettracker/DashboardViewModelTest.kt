@@ -177,4 +177,38 @@ class DashboardViewModelTest {
         val netWorthRestored = viewModel.netWorth.first { it == 65_000L }
         assertEquals(65_000L, netWorthRestored)
     }
+
+    @Test
+    fun testDefaultBalanceVisibilityAndToggle() = runBlocking {
+        assertTrue(viewModel.isBalanceVisible.value)
+
+        viewModel.toggleBalanceVisibility()
+        org.junit.Assert.assertFalse(viewModel.isBalanceVisible.value)
+
+        viewModel.toggleBalanceVisibility()
+        assertTrue(viewModel.isBalanceVisible.value)
+    }
+
+    @Test
+    fun testBalanceVisibilityWithAppPreferences() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val appPreferences = com.example.budgettracker.data.preference.AppPreferences(context)
+        val vmWithPrefs = DashboardViewModel(repository, testDispatcher, appPreferences)
+
+        assertTrue(vmWithPrefs.isBalanceVisible.value)
+
+        vmWithPrefs.toggleBalanceVisibility()
+        org.junit.Assert.assertFalse(vmWithPrefs.isBalanceVisible.value)
+        org.junit.Assert.assertFalse(appPreferences.isBalanceVisible.value)
+
+        // Create a second VM with same appPreferences (simulating Accounts screen or app recreation)
+        val secondVm = DashboardViewModel(repository, testDispatcher, appPreferences)
+        org.junit.Assert.assertFalse(secondVm.isBalanceVisible.value)
+
+        // Toggling from second VM updates first VM and appPreferences
+        secondVm.toggleBalanceVisibility()
+        assertTrue(secondVm.isBalanceVisible.value)
+        assertTrue(vmWithPrefs.isBalanceVisible.value)
+        assertTrue(appPreferences.isBalanceVisible.value)
+    }
 }

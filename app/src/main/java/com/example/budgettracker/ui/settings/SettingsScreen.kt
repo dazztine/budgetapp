@@ -1,5 +1,6 @@
 package com.example.budgettracker.ui.settings
 
+import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -74,7 +75,20 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var showBackupDialog by remember { mutableStateOf(false) }
     var showGlossarySheet by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     val glossarySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    BackHandler(enabled = showGlossarySheet) {
+        showGlossarySheet = false
+    }
+
+    BackHandler(enabled = showBackupDialog) {
+        showBackupDialog = false
+    }
+
+    BackHandler(enabled = showThemeDialog) {
+        showThemeDialog = false
+    }
 
     Scaffold(
         topBar = {
@@ -144,7 +158,6 @@ fun SettingsScreen(
                 onClick = { showGlossarySheet = true }
             )
 
-            var showThemeDialog by remember { mutableStateOf(false) }
             val themeSettingState = themePreferences?.themeSetting?.collectAsState()
             val currentThemeSetting = themeSettingState?.value ?: ThemeSetting.LIGHT
 
@@ -172,9 +185,9 @@ fun SettingsScreen(
             val appVersion = remember {
                 try {
                     val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                    pInfo.versionName ?: "1.3.0"
+                    pInfo.versionName ?: "1.4.0"
                 } catch (e: Exception) {
-                    "1.3.0"
+                    "1.4.0"
                 }
             }
 

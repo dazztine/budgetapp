@@ -3,6 +3,7 @@ package com.example.budgettracker.ui.transaction
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -22,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,7 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.ui.components.InvalidMathExpressionDialog
+import com.example.budgettracker.ui.theme.AmberGlow
 import com.example.budgettracker.ui.theme.Green500
+import com.example.budgettracker.ui.theme.MidnightNavy
 import com.example.budgettracker.ui.theme.Orange500
 import com.example.budgettracker.ui.theme.Red500
 import com.example.budgettracker.ui.theme.Zinc50
@@ -121,16 +126,30 @@ fun ManualTransactionScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        viewModel.toastMessage.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    BackHandler(enabled = isCalculatorVisible) {
+        isCalculatorVisible = false
+    }
+
+    BackHandler(enabled = !isCalculatorVisible) {
+        onNavigateBack()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (isEditing) "Edit Transaction" else "Log Transaction", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
-                actions = {
+                navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurface
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 },
@@ -147,11 +166,19 @@ fun ManualTransactionScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            val formScrollState = rememberScrollState()
+
+            LaunchedEffect(isCalculatorVisible) {
+                if (isCalculatorVisible) {
+                    formScrollState.animateScrollTo(formScrollState.maxValue)
+                }
+            }
+
             // Form input fields (Scrollable top area)
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(formScrollState)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -179,6 +206,18 @@ fun ManualTransactionScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AmberGlow,
+                                selectedLabelColor = MidnightNavy,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selectedType == type,
+                                borderColor = MaterialTheme.colorScheme.outline,
+                                selectedBorderColor = AmberGlow
+                            ),
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -298,7 +337,11 @@ fun ManualTransactionScreen(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(ZincCornerRadius))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(ZincCornerRadius))
+                        .border(
+                            width = if (isCalculatorVisible) 1.5.dp else 1.dp,
+                            color = if (isCalculatorVisible) AmberGlow else MaterialTheme.colorScheme.outlineVariant,
+                            shape = RoundedCornerShape(ZincCornerRadius)
+                        )
                         .clickable { isCalculatorVisible = true }
                         .padding(14.dp)
                 ) {
@@ -307,20 +350,32 @@ fun ManualTransactionScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("Amount (Tap to enter/calculate)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val displayAmount = CurrencyUtils.formatExpressionForDisplay(amountInput)
+
+                        Column(
+                            modifier = Modifier.weight(1f, fill = false),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
                             Text(
-                                text = if (amountInput.isBlank()) "0.00" else amountInput,
-                                fontSize = 14.sp,
+                                text = if (isCalculatorVisible) "Amount (Editing...)" else "Amount",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isCalculatorVisible) AmberGlow else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = if (isCalculatorVisible) "Live expression" else "Tap to enter/calculate",
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         Text(
-                            text = CurrencyUtils.formatCentavosToPesos(viewModel.amountCentavos),
-                            fontSize = 24.sp,
+                            text = displayAmount,
+                            fontSize = if (displayAmount.length > 14) 20.sp else 24.sp,
                             fontWeight = FontWeight.Bold,
-                            color = amountColor
+                            color = amountColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -349,7 +404,9 @@ fun ManualTransactionScreen(
                 enter = slideInVertically(initialOffsetY = { it }),
                 exit = slideOutVertically(targetOffsetY = { it })
             ) {
+                val clipboardManager = LocalClipboardManager.current
                 NumpadView(
+                    amountExpression = amountInput,
                     onDigitClick = { viewModel.onDigitInput(it) },
                     onDotClick = { viewModel.onDotInput() },
                     onBackspaceClick = { viewModel.onBackspace() },
@@ -361,8 +418,17 @@ fun ManualTransactionScreen(
                             showInvalidMathDialog = true
                         }
                     },
-                    onConfirmClick = { viewModel.saveTransaction() },
+                    onConfirmClick = {
+                        viewModel.onConfirmAmount()
+                        isCalculatorVisible = false
+                    },
                     onToggleSignClick = { viewModel.onToggleSign() },
+                    onPasteClick = {
+                        val text = clipboardManager.getText()?.text
+                        if (!text.isNullOrBlank()) {
+                            viewModel.onPasteInput(text)
+                        }
+                    },
                     onDismiss = { isCalculatorVisible = false }
                 )
             }

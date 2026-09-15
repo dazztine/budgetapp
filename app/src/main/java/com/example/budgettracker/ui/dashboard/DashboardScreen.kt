@@ -1,5 +1,6 @@
 package com.example.budgettracker.ui.dashboard
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -92,7 +93,7 @@ fun DashboardScreen(
     val monthlyTotals by viewModel.monthlyTotals.collectAsState()
 
     var showBackupDialog by remember { mutableStateOf(false) }
-    var isBalanceVisible by remember { mutableStateOf(true) }
+    val isBalanceVisible by viewModel.isBalanceVisible.collectAsState()
     var transactionToDelete by remember { mutableStateOf<com.example.budgettracker.data.local.entity.TransactionEntity?>(null) }
     var selectedAccountForDetailSheet by remember { mutableStateOf<com.example.budgettracker.data.local.entity.AccountWithBalance?>(null) }
 
@@ -101,6 +102,18 @@ fun DashboardScreen(
             viewModel.getTransactionsForAccount(id)
         } ?: flowOf(emptyList())
     }.collectAsState(initial = emptyList())
+
+    BackHandler(enabled = selectedAccountForDetailSheet != null) {
+        selectedAccountForDetailSheet = null
+    }
+
+    BackHandler(enabled = transactionToDelete != null) {
+        transactionToDelete = null
+    }
+
+    BackHandler(enabled = showBackupDialog) {
+        showBackupDialog = false
+    }
 
     Scaffold(
         topBar = {
@@ -144,7 +157,8 @@ fun DashboardScreen(
             NetWorthCard(
                 netWorth = netWorth,
                 isBalanceVisible = isBalanceVisible,
-                onToggleVisibility = { isBalanceVisible = !isBalanceVisible }
+                onToggleVisibility = { viewModel.toggleBalanceVisibility() },
+                useBrandOwlToggle = true
             )
 
             // Accounts Section (2x2 Grid + See More)
@@ -497,7 +511,8 @@ fun DashboardScreen(
             onEditTransaction = { tx ->
                 selectedAccountForDetailSheet = null
                 onEditTransaction(tx)
-            }
+            },
+            isBalanceVisible = isBalanceVisible
         )
     }
 }

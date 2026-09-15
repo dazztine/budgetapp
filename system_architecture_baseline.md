@@ -1,6 +1,6 @@
 # "As-Is" System Architecture & Current System Baseline
-**Application**: BudgetTracker (Personal Finance & Expense Manager)  
-**Version**: `v1.1.0` (`versionCode = 2`)  
+**Application**: kwago (Personal Finance & Expense Manager)  
+**Version**: `v1.3.0` (`versionCode = 4`)  
 **Platform**: Android (Min SDK 26 / Target SDK 35+)  
 **UI Toolkit**: Jetpack Compose (Material Design 3)  
 **Language**: 100% Kotlin  

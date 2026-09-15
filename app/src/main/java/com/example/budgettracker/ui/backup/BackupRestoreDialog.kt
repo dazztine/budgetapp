@@ -172,7 +172,7 @@ fun BackupRestoreDialog(
                                 OutlinedButton(
                                     onClick = {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("Budget Tracker Backup", exportedJson)
+                                        val clip = ClipData.newPlainText("kwago Backup", exportedJson)
                                         clipboard.setPrimaryClip(clip)
                                         Toast.makeText(context, "Backup copied to clipboard!", Toast.LENGTH_SHORT).show()
                                     },

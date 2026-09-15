@@ -122,7 +122,7 @@ fun SettingsScreen(
                         val csvData = CsvExporter.generateCsv(transactions, accounts)
 
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val clip = ClipData.newPlainText("BudgetTracker_Export.csv", csvData)
+                        val clip = ClipData.newPlainText("kwago_Export.csv", csvData)
                         clipboard.setPrimaryClip(clip)
 
                         Toast.makeText(context, "CSV copied to clipboard (${transactions.size} records)", Toast.LENGTH_LONG).show()
@@ -172,9 +172,9 @@ fun SettingsScreen(
             val appVersion = remember {
                 try {
                     val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                    pInfo.versionName ?: "1.2.0"
+                    pInfo.versionName ?: "1.3.0"
                 } catch (e: Exception) {
-                    "1.2.0"
+                    "1.3.0"
                 }
             }
 
@@ -183,7 +183,7 @@ fun SettingsScreen(
                 title = "About",
                 subtitle = "App version $appVersion",
                 onClick = {
-                    Toast.makeText(context, "BudgetTracker v$appVersion (Offline-First)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "kwago v$appVersion (Offline-First)", Toast.LENGTH_SHORT).show()
                 }
             )
         }

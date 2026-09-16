@@ -84,4 +84,44 @@ object CurrencyUtils {
 
         return if (isNegative) "-₱$numberString" else "₱$numberString"
     }
+
+    /**
+     * Formats raw numeric text input for currency fields with thousand-comma separators as the user types.
+     * Enforces at most one decimal point and at most 2 decimal places.
+     * Discards invalid non-digit/non-dot characters.
+     * E.g. "1500" -> "1,500", "1500." -> "1,500.", "1500.5" -> "1,500.5", "1500.50" -> "1,500.50".
+     */
+    fun formatAmountInput(input: String): String {
+        if (input.isBlank()) return ""
+        val clean = input.replace(",", "").replace(" ", "")
+        val sb = StringBuilder()
+        var hasDecimal = false
+        for (c in clean) {
+            if (c.isDigit()) {
+                sb.append(c)
+            } else if (c == '.' && !hasDecimal) {
+                sb.append(c)
+                hasDecimal = true
+            }
+        }
+        val filtered = sb.toString()
+        if (filtered.isEmpty()) return ""
+        if (filtered == ".") return "0."
+
+        val parts = filtered.split(".", limit = 2)
+        val integerPart = parts[0].take(12)
+        val formattedInteger = if (integerPart.isEmpty()) {
+            "0"
+        } else {
+            val unpadded = if (integerPart.length > 1) integerPart.trimStart('0').ifEmpty { "0" } else integerPart
+            unpadded.reversed().chunked(3).joinToString(",").reversed()
+        }
+
+        return if (hasDecimal) {
+            val decimalPart = if (parts.size > 1) parts[1].take(2) else ""
+            "$formattedInteger.$decimalPart"
+        } else {
+            formattedInteger
+        }
+    }
 }

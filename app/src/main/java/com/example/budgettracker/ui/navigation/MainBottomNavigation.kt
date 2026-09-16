@@ -15,8 +15,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.CropFree
 import androidx.compose.material.icons.outlined.Home
@@ -31,6 +33,7 @@ enum class BottomTab(
     DASHBOARD("Dashboard", Icons.Outlined.Home, Icons.Filled.Home),
     SMART_PARSER("Smart Parser", Icons.Outlined.CropFree, Icons.Outlined.CropFree),
     ACCOUNTS("Accounts", Icons.Outlined.CreditCard, Icons.Outlined.CreditCard),
+    REPORTS("Reports", Icons.Outlined.BarChart, Icons.Filled.BarChart),
     SETTINGS("Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
 }
 

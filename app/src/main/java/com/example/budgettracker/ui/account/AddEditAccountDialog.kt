@@ -1,8 +1,5 @@
 package com.example.budgettracker.ui.account
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,11 +20,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
@@ -43,6 +40,7 @@ import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Receipt
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -72,14 +70,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.example.budgettracker.R
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
@@ -90,7 +87,6 @@ import com.example.budgettracker.data.model.AccountType
 import com.example.budgettracker.ui.components.BalanceAdjustmentConfirmDialog
 import com.example.budgettracker.ui.theme.ZincCornerRadius
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
-import com.example.budgettracker.ui.transaction.components.NumpadView
 import com.example.budgettracker.ui.util.BrandLogoMapper
 import com.example.budgettracker.util.CurrencyUtils
 import kotlin.math.abs
@@ -191,18 +187,18 @@ fun AddEditAccountDialog(
     var selectedType by remember { mutableStateOf(initialAccount?.type ?: AccountType.SAVINGS) }
     var selectedPresetId by remember { mutableStateOf(initialAccount?.presetId ?: "") }
 
-    // Starting Balance defaults to actual value of 0.00
+    // Starting Balance defaults to empty with placeholder 0.00
     var balanceInput by remember {
         mutableStateOf(
             if (currentBalance != null) {
                 val pesos = currentBalance / 100
                 val cents = currentBalance % 100
-                if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else "$pesos.00"
+                if (cents > 0) String.format(java.util.Locale.US, "%,d.%02d", pesos, cents) else String.format(java.util.Locale.US, "%,d.00", pesos)
             } else if (initialAccount != null) {
                 val pesos = initialAccount.initialBalance / 100
                 val cents = initialAccount.initialBalance % 100
-                if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else "$pesos.00"
-            } else "0.00"
+                if (cents > 0) String.format(java.util.Locale.US, "%,d.%02d", pesos, cents) else String.format(java.util.Locale.US, "%,d.00", pesos)
+            } else ""
         )
     }
 
@@ -240,7 +236,6 @@ fun AddEditAccountDialog(
         )
     }
 
-    var isCalculatorVisible by remember { mutableStateOf(false) }
     var expandedDueDayDropdown by remember { mutableStateOf(false) }
 
     // Adjustment confirmation prompt state
@@ -267,57 +262,30 @@ fun AddEditAccountDialog(
 
     val context = LocalContext.current
 
-    val handleDismissOrBack = {
-        if (isCalculatorVisible) {
-            isCalculatorVisible = false
-        } else if (currentStep == ModalStep.DETAILS_FORM && initialAccount == null) {
-            currentStep = ModalStep.PRESET_GRID
-        } else {
-            onDismiss()
-        }
-    }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    Dialog(onDismissRequest = handleDismissOrBack) {
-        BackHandler(enabled = isCalculatorVisible) {
-            isCalculatorVisible = false
-        }
-
-        BackHandler(enabled = !isCalculatorVisible && currentStep == ModalStep.DETAILS_FORM && initialAccount == null) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    ) {
+        BackHandler(enabled = currentStep == ModalStep.DETAILS_FORM && initialAccount == null) {
             currentStep = ModalStep.PRESET_GRID
         }
 
-        BackHandler(enabled = !isCalculatorVisible && (currentStep == ModalStep.PRESET_GRID || initialAccount != null)) {
+        BackHandler(enabled = currentStep == ModalStep.PRESET_GRID || initialAccount != null) {
             onDismiss()
         }
 
-        Surface(
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.96f)
-                .fillMaxHeight(0.92f)
+                .fillMaxWidth()
+                .fillMaxHeight(0.68f)
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 14.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 18.dp, vertical = 14.dp)
-            ) {
-                // Top Drag Handle Bar
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(36.dp)
-                            .height(4.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    )
-                }
 
                 // Modal Header
                 Row(
@@ -618,50 +586,25 @@ fun AddEditAccountDialog(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        // 2. Starting Balance Field (Fix #2: Tapping field itself OR calculator icon opens calculator; Fix #5: Defaults to ₱0.00)
-                        val formattedDisplayBalance = CurrencyUtils.formatExpressionForDisplay(balanceInput)
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(ZincCornerRadius))
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(ZincCornerRadius))
-                                .clickable { isCalculatorVisible = true }
-                                .padding(horizontal = 14.dp, vertical = 12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Starting Balance *",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = formattedDisplayBalance,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                        // 2. Starting Balance Field
+                        OutlinedTextField(
+                            value = balanceInput,
+                            onValueChange = { balanceInput = CurrencyUtils.formatAmountInput(it) },
+                            label = { Text("Starting Balance *") },
+                            placeholder = { Text("0.00") },
+                            leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            trailingIcon = {
+                                if (balanceInput.isNotEmpty()) {
+                                    IconButton(onClick = { balanceInput = "" }) {
+                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                    }
                                 }
-
-                                IconButton(
-                                    onClick = { isCalculatorVisible = true },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Calculate,
-                                        contentDescription = "Calculator",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+                            },
+                            shape = RoundedCornerShape(ZincCornerRadius),
+                            modifier = Modifier.fillMaxWidth()
+                        )
 
                         // Accordion 1: Savings Details (Fix #1: Collapsed by default)
                         if (selectedCategory == ModalCategory.SAVINGS) {
@@ -959,65 +902,6 @@ fun AddEditAccountDialog(
                     }
                 }
 
-                // Slide-up Numpad Calculator
-                AnimatedVisibility(
-                    visible = isCalculatorVisible,
-                    enter = slideInVertically(initialOffsetY = { it }),
-                    exit = slideOutVertically(targetOffsetY = { it })
-                ) {
-                    val clipboardManager = LocalClipboardManager.current
-                    NumpadView(
-                        amountExpression = balanceInput,
-                        onDigitClick = { digit ->
-                            val current = if (balanceInput == "0.00" || balanceInput == "0") "" else balanceInput
-                            if (current.length + digit.length > 20) {
-                                Toast.makeText(context, "Amount limit reached", Toast.LENGTH_SHORT).show()
-                                return@NumpadView
-                            }
-                            balanceInput = if (current.isEmpty()) digit else current + digit
-                        },
-                        onDotClick = {
-                            if (!balanceInput.contains(".")) {
-                                val needed = if (balanceInput.isBlank() || balanceInput == "0.00" || balanceInput == "0") 2 else 1
-                                val current = if (balanceInput == "0.00" || balanceInput == "0") "" else balanceInput
-                                if (current.length + needed > 20) {
-                                    Toast.makeText(context, "Amount limit reached", Toast.LENGTH_SHORT).show()
-                                    return@NumpadView
-                                }
-                                balanceInput = if (current.isBlank()) "0." else "$current."
-                            }
-                        },
-                        onBackspaceClick = {
-                            if (balanceInput.isNotEmpty()) {
-                                balanceInput = balanceInput.dropLast(1)
-                                if (balanceInput.isEmpty()) balanceInput = "0.00"
-                            }
-                        },
-                        onClearClick = { balanceInput = "0.00" },
-                        onConfirmClick = { isCalculatorVisible = false },
-                        onPasteClick = {
-                            val text = clipboardManager.getText()?.text
-                            if (!text.isNullOrBlank()) {
-                                val sb = StringBuilder()
-                                var hasDecimal = false
-                                for (c in text) {
-                                    if (c.isDigit()) sb.append(c)
-                                    else if (c == '.' && !hasDecimal) { sb.append(c); hasDecimal = true }
-                                }
-                                var numericOnly = sb.toString()
-                                if (numericOnly.isNotBlank()) {
-                                    if (numericOnly.length > 20) {
-                                        numericOnly = numericOnly.take(20)
-                                        Toast.makeText(context, "Amount limit reached", Toast.LENGTH_SHORT).show()
-                                    }
-                                    balanceInput = numericOnly
-                                }
-                            }
-                        },
-                        onDismiss = { isCalculatorVisible = false }
-                    )
-                }
-            }
         }
     }
 }

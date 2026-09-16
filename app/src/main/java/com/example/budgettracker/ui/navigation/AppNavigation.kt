@@ -29,6 +29,8 @@ import com.example.budgettracker.ui.history.TransactionHistoryScreen
 import com.example.budgettracker.ui.history.TransactionHistoryViewModel
 import com.example.budgettracker.ui.parse.QuickParseScreen
 import com.example.budgettracker.ui.parse.QuickParseViewModel
+import com.example.budgettracker.ui.reports.ReportsScreen
+import com.example.budgettracker.ui.reports.ReportsViewModel
 import com.example.budgettracker.ui.settings.SettingsScreen
 import com.example.budgettracker.ui.transaction.ManualTransactionScreen
 import com.example.budgettracker.ui.transaction.TransactionViewModel
@@ -40,6 +42,7 @@ fun AppNavigation(
     transactionViewModel: TransactionViewModel,
     quickParseViewModel: QuickParseViewModel,
     transactionHistoryViewModel: TransactionHistoryViewModel,
+    reportsViewModel: ReportsViewModel,
     themePreferences: com.example.budgettracker.ui.theme.ThemePreferences? = null,
     modifier: Modifier = Modifier,
     initialTab: BottomTab = BottomTab.DASHBOARD
@@ -108,6 +111,12 @@ fun AppNavigation(
                             AccountsScreen(
                                 viewModel = dashboardViewModel,
                                 onEditTransaction = onEditTransaction
+                            )
+                        }
+
+                        BottomTab.REPORTS -> {
+                            ReportsScreen(
+                                viewModel = reportsViewModel
                             )
                         }
 

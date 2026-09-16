@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
         val transactionViewModel = TransactionViewModel(repository)
         val quickParseViewModel = QuickParseViewModel(repository)
         val transactionHistoryViewModel = TransactionHistoryViewModel(repository)
+        val reportsViewModel = com.example.budgettracker.ui.reports.ReportsViewModel(repository, appPreferences = appPreferences)
 
         setContent {
             val currentTheme by themePreferences.themeSetting.collectAsState()
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
                         transactionViewModel = transactionViewModel,
                         quickParseViewModel = quickParseViewModel,
                         transactionHistoryViewModel = transactionHistoryViewModel,
+                        reportsViewModel = reportsViewModel,
                         themePreferences = themePreferences
                     )
                 }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -41,7 +42,11 @@ class TransactionViewModel(
     val toastMessage: SharedFlow<String> = _toastMessage.asSharedFlow()
 
     val accounts: StateFlow<List<AccountEntity>> = repository.activeAccounts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val accountBalances: StateFlow<Map<Long, Long>> = repository.activeAccountsWithBalances
+        .map { list -> list.associate { it.id to it.currentBalance } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     private val _amountInput = MutableStateFlow("")
     val amountInput: StateFlow<String> = _amountInput.asStateFlow()

@@ -41,16 +41,16 @@ class DashboardViewModel(
     }
 
     val netWorth: StateFlow<Long> = repository.totalNetWorth
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     val activeAccountsWithBalances: StateFlow<List<AccountWithBalance>> = repository.activeAccountsWithBalances
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val hiddenAccounts: StateFlow<List<AccountEntity>> = repository.hiddenAccounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recentTransactions: StateFlow<List<TransactionEntity>> = repository.getRecentTransactions(20)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val loanAccounts: StateFlow<List<AccountWithLoanDetails>> = repository.getAllActiveLoanAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

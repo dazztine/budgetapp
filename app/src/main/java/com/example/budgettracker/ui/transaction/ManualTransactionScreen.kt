@@ -83,6 +83,7 @@ fun ManualTransactionScreen(
     val amountInput by viewModel.amountInput.collectAsState()
     val selectedType by viewModel.selectedType.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
+    val accountBalances by viewModel.accountBalances.collectAsState()
     val selectedAccountId by viewModel.selectedAccountId.collectAsState()
     val selectedToAccountId by viewModel.selectedToAccountId.collectAsState()
     val categoryInput by viewModel.categoryInput.collectAsState()
@@ -228,6 +229,7 @@ fun ManualTransactionScreen(
                     label = if (selectedType == TransactionType.TRANSFER) "From Account" else "Account",
                     selectedAccount = selectedAccount,
                     accounts = accounts,
+                    balances = accountBalances,
                     onAccountSelected = { viewModel.setAccountId(it.id) }
                 )
 
@@ -236,6 +238,7 @@ fun ManualTransactionScreen(
                         label = "To Destination Account",
                         selectedAccount = selectedToAccount,
                         accounts = accounts.filter { it.id != selectedAccountId },
+                        balances = accountBalances,
                         onAccountSelected = { viewModel.setToAccountId(it.id) }
                     )
                 }

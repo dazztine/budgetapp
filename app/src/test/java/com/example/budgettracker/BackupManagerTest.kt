@@ -62,7 +62,7 @@ class BackupManagerTest {
         )
 
         val loanDetails = listOf(
-            LoanAccountDetailsEntity(accountId = 2L, cycleDay1 = 15, cycleDay2 = 30, minimumAmountDue = 250000L)
+            LoanAccountDetailsEntity(accountId = 2L, dueDays = "15,30", minimumAmountDue = 250000L)
         )
 
         val installmentPlans = listOf(
@@ -96,7 +96,7 @@ class BackupManagerTest {
             SavingsAccountDetailsEntity(accountId = 1L, interestRate = 3.5, goalAmount = 10000000L)
         )
         val billDetails = listOf(
-            BillAccountDetailsEntity(accountId = 2L, dueDay = 25, amountDue = 150000L, amountType = BillAmountType.FIXED)
+            BillAccountDetailsEntity(accountId = 2L, dueDays = "25", amountDue = 150000L, amountType = BillAmountType.FIXED)
         )
 
         val jsonString = BackupManager.exportToJson(accounts, loanDetails, installmentPlans, transactions, savingsDetails, billDetails)
@@ -179,9 +179,9 @@ class BackupManagerTest {
         val acc1Id = repository.insertAccount(AccountEntity(name = "GCash", type = AccountType.E_WALLET, initialBalance = 100000L))
         val acc2Id = repository.insertAccount(AccountEntity(name = "BPI Credit", type = AccountType.BNPL, initialBalance = 0L))
 
-        repository.insertLoanDetails(LoanAccountDetailsEntity(accountId = acc2Id, cycleDay1 = 10))
+        repository.insertLoanDetails(LoanAccountDetailsEntity(accountId = acc2Id, dueDays = "10"))
         repository.insertSavingsDetails(SavingsAccountDetailsEntity(accountId = acc1Id, interestRate = 4.0, goalAmount = 5000000L))
-        repository.insertBillDetails(BillAccountDetailsEntity(accountId = acc2Id, dueDay = 15, amountDue = 200000L, amountType = BillAmountType.FIXED))
+        repository.insertBillDetails(BillAccountDetailsEntity(accountId = acc2Id, dueDays = "15", amountDue = 200000L, amountType = BillAmountType.FIXED))
         repository.insertTransaction(
             TransactionEntity(
                 accountId = acc1Id,
@@ -220,6 +220,6 @@ class BackupManagerTest {
         assertEquals(4.0, restoredSavings[0].interestRate!!, 0.001)
         val restoredBills = repository.getAllBillDetailsDirect()
         assertEquals(1, restoredBills.size)
-        assertEquals(15, restoredBills[0].dueDay)
+        assertEquals(listOf(15), restoredBills[0].parseDueDays())
     }
 }

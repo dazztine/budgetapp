@@ -3,10 +3,13 @@ package com.example.budgettracker.ui.transaction
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.local.entity.AccountWithBalance
+import com.example.budgettracker.data.local.entity.CustomCategoryEntity
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.data.repository.BudgetRepository
+import com.example.budgettracker.ui.transaction.components.CategoryItem
 import com.example.budgettracker.util.CurrencyUtils
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -41,12 +44,8 @@ class TransactionViewModel(
     private val _toastMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val toastMessage: SharedFlow<String> = _toastMessage.asSharedFlow()
 
-    val accounts: StateFlow<List<AccountEntity>> = repository.activeAccounts
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
-    val accountBalances: StateFlow<Map<Long, Long>> = repository.activeAccountsWithBalances
-        .map { list -> list.associate { it.id to it.currentBalance } }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    val accounts: StateFlow<List<AccountWithBalance>> = repository.activeAccountsWithBalances
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _amountInput = MutableStateFlow("")
     val amountInput: StateFlow<String> = _amountInput.asStateFlow()
@@ -59,6 +58,9 @@ class TransactionViewModel(
 
     private val _selectedToAccountId = MutableStateFlow<Long?>(null)
     val selectedToAccountId: StateFlow<Long?> = _selectedToAccountId.asStateFlow()
+
+    private val _isToAccountLocked = MutableStateFlow(false)
+    val isToAccountLocked: StateFlow<Boolean> = _isToAccountLocked.asStateFlow()
 
     private val _categoryInput = MutableStateFlow("")
     val categoryInput: StateFlow<String> = _categoryInput.asStateFlow()
@@ -95,6 +97,31 @@ class TransactionViewModel(
             repository.getDistinctCategories(type)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val customCategories: StateFlow<List<CategoryItem>> = _selectedType
+        .flatMapLatest { type ->
+            repository.getCustomCategories(type).map { list ->
+                list.map { CategoryItem(it.name, it.iconName, isCustom = true) }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun addCustomCategory(name: String, iconName: String) {
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                repository.insertCustomCategory(
+                    CustomCategoryEntity(
+                        name = name,
+                        transactionType = _selectedType.value,
+                        iconName = iconName
+                    )
+                )
+            } catch (e: Exception) {
+                _toastMessage.tryEmit(e.message ?: "Failed to add category")
+            }
+        }
+    }
 
     // Scoped Autocomplete Titles Stream
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -352,6 +379,14 @@ class TransactionViewModel(
 
     fun setTransactionType(type: TransactionType) {
         _selectedType.value = type
+        if (type == TransactionType.INSTALLMENT && accounts.value.isNotEmpty()) {
+            val loanAccounts = accounts.value.filter { it.type == com.example.budgettracker.data.model.AccountType.LOAN || it.type == com.example.budgettracker.data.model.AccountType.BNPL }
+            val currentSelected = _selectedAccountId.value
+            val currentAccount = accounts.value.find { it.id == currentSelected }
+            if (currentAccount == null || (currentAccount.type != com.example.budgettracker.data.model.AccountType.LOAN && currentAccount.type != com.example.budgettracker.data.model.AccountType.BNPL)) {
+                _selectedAccountId.value = loanAccounts.firstOrNull()?.id
+            }
+        }
     }
 
     fun setAccountId(accountId: Long?) {
@@ -467,10 +502,62 @@ class TransactionViewModel(
                     repository.updateTransaction(transaction)
                 }
                 _saveState.value = SaveResult.Success
+                val callback = onTransactionSavedCallback
+                val callbackWithAmount = onTransactionSavedWithAmountCallback
+                onTransactionSavedCallback = null
+                onTransactionSavedWithAmountCallback = null
+                callback?.invoke()
+                callbackWithAmount?.invoke(centavos)
                 onSuccess()
             } catch (e: Exception) {
                 _saveState.value = SaveResult.Error(e.message ?: "Failed to save transaction")
             }
+        }
+    }
+
+    private var onTransactionSavedCallback: (() -> Unit)? = null
+    private var onTransactionSavedWithAmountCallback: ((Long) -> Unit)? = null
+
+    fun prepareForTransfer(
+        toAccountId: Long,
+        amountCentavos: Long? = null,
+        category: String = "Bill Payment",
+        title: String = "Bill Payment",
+        onConfirmed: (() -> Unit)? = null,
+        onConfirmedWithAmount: ((Long) -> Unit)? = null
+    ) {
+        resetFormForNextEntry()
+        _selectedType.value = TransactionType.TRANSFER
+        _selectedToAccountId.value = toAccountId
+        _selectedAccountId.value = null
+        _isToAccountLocked.value = true
+        _categoryInput.value = category
+        _titleInput.value = title
+        if (amountCentavos != null && amountCentavos > 0) {
+            val pesos = amountCentavos / 100
+            val cents = amountCentavos % 100
+            _amountInput.value = if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else pesos.toString()
+        }
+        onTransactionSavedCallback = onConfirmed
+        onTransactionSavedWithAmountCallback = onConfirmedWithAmount
+    }
+
+    fun prepareForNewTransaction(
+        accountId: Long? = null,
+        type: TransactionType = TransactionType.EXPENSE
+    ) {
+        resetFormForNextEntry()
+        _selectedType.value = type
+        if (type == TransactionType.INSTALLMENT) {
+            val loanAccounts = accounts.value.filter { it.type == com.example.budgettracker.data.model.AccountType.LOAN || it.type == com.example.budgettracker.data.model.AccountType.BNPL }
+            val passedAccount = accounts.value.find { it.id == accountId }
+            if (passedAccount != null && (passedAccount.type == com.example.budgettracker.data.model.AccountType.LOAN || passedAccount.type == com.example.budgettracker.data.model.AccountType.BNPL)) {
+                _selectedAccountId.value = accountId
+            } else {
+                _selectedAccountId.value = loanAccounts.firstOrNull()?.id
+            }
+        } else {
+            _selectedAccountId.value = accountId
         }
     }
 
@@ -491,8 +578,11 @@ class TransactionViewModel(
         _saveState.value = SaveResult.Idle
         _editingTransactionId.value = null
         _isEditing.value = false
+        _isToAccountLocked.value = false
         pendingOperator = null
         storedOperand = null
+        onTransactionSavedCallback = null
+        onTransactionSavedWithAmountCallback = null
     }
 
     fun resetSaveState() {

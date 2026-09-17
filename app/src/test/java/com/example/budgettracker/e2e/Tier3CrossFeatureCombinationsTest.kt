@@ -213,8 +213,7 @@ class Tier3CrossFeatureCombinationsTest {
 
             val restoredLoanDetails = restoredHarness.getLoanDetails(loanId)
             assertNotNull(restoredLoanDetails)
-            assertEquals(15, restoredLoanDetails!!.cycleDay1)
-            assertEquals(30, restoredLoanDetails.cycleDay2)
+            assertEquals(listOf(15, 30), restoredLoanDetails!!.parseDueDays())
             assertEquals(100_000L, restoredLoanDetails.minimumAmountDue)
         } finally {
             restoredHarness.close()

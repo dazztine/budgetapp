@@ -29,7 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.local.entity.AccountWithBalance
 import com.example.budgettracker.data.model.AccountType
 import com.example.budgettracker.ui.theme.ZincCornerRadius
 import com.example.budgettracker.util.CurrencyUtils
@@ -37,10 +37,9 @@ import com.example.budgettracker.util.CurrencyUtils
 @Composable
 fun CompactAccountSelector(
     label: String,
-    selectedAccount: AccountEntity?,
-    accounts: List<AccountEntity>,
-    balances: Map<Long, Long> = emptyMap(),
-    onAccountSelected: (AccountEntity) -> Unit,
+    selectedAccount: AccountWithBalance?,
+    accounts: List<AccountWithBalance>,
+    onAccountSelected: (AccountWithBalance) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -66,13 +65,13 @@ fun CompactAccountSelector(
                 ) {
                     rowItems.forEach { acc ->
                         val isSelected = acc.id == selectedAccount?.id
-                        val balanceVal = balances[acc.id] ?: acc.initialBalance
+                        val balanceVal = acc.currentBalance
 
                         val typeIcon = when (acc.type) {
                             AccountType.CASH -> Icons.Outlined.AccountBalanceWallet
                             AccountType.BANK, AccountType.SAVINGS -> Icons.Outlined.AccountBalance
                             AccountType.E_WALLET -> Icons.Outlined.PhoneAndroid
-                            AccountType.BNPL, AccountType.LOAN -> Icons.Outlined.CreditCard
+                            AccountType.BNPL, AccountType.LOAN, AccountType.CREDIT -> Icons.Outlined.CreditCard
                             AccountType.BILL -> Icons.Outlined.Receipt
                             AccountType.ASSET -> Icons.Outlined.AccountBalance
                         }

@@ -19,7 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.budgettracker.data.local.entity.AccountEntity
+import com.example.budgettracker.data.local.entity.AccountWithBalance
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.ui.theme.ZincCornerRadius
@@ -31,7 +31,7 @@ import java.util.Locale
 @Composable
 fun RecentTransactionsList(
     transactions: List<TransactionEntity>,
-    accounts: List<AccountEntity>,
+    accounts: List<AccountWithBalance>,
     onTransactionClick: (TransactionEntity) -> Unit = {},
     onDeleteClick: (TransactionEntity) -> Unit = {},
     modifier: Modifier = Modifier

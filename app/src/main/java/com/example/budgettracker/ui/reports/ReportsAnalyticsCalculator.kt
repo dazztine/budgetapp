@@ -5,6 +5,8 @@ import com.example.budgettracker.data.local.entity.AccountWithBalance
 import com.example.budgettracker.data.local.entity.AccountWithBillDetails
 import com.example.budgettracker.data.local.entity.AccountWithLoanDetails
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
+import com.example.budgettracker.data.local.entity.LoanBillingCycleEntity
+import com.example.budgettracker.data.local.entity.RecurringBillEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.ui.theme.AmberGlow
@@ -221,6 +223,64 @@ object ReportsAnalyticsCalculator {
     }
 
     /**
+     * Tier 1: Upcoming Obligations from single source of truth (loan_billing_cycles).
+     */
+    fun calculateUpcomingObligationsFromCycles(
+        pendingCycles: List<LoanBillingCycleEntity>,
+        accounts: List<AccountWithBalance>,
+        recurringBills: List<RecurringBillEntity> = emptyList(),
+        today: LocalDate = LocalDate.now(),
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): List<UpcomingObligation> {
+        val obligations = mutableListOf<UpcomingObligation>()
+        val maxDueLimit = today.plusDays(30)
+        val accountMap = accounts.associateBy { it.id }
+
+        pendingCycles.forEach { cycle ->
+            val account = accountMap[cycle.accountId]
+            if (account != null && account.isActive) {
+                val dueDate = Instant.ofEpochMilli(cycle.cycleDueDate).atZone(zoneId).toLocalDate()
+                if (!dueDate.isAfter(maxDueLimit)) {
+                    val daysUntilDue = ChronoUnit.DAYS.between(today, dueDate)
+                    val status = LoanDateUtils.getDueDateStatus(dueDate, today)
+                    obligations.add(
+                        UpcomingObligation(
+                            id = cycle.id,
+                            title = account.name,
+                            amount = cycle.amountDue,
+                            dueDate = dueDate,
+                            daysUntilDue = daysUntilDue,
+                            status = status,
+                            typeLabel = account.type.toDisplayLabel()
+                        )
+                    )
+                }
+            }
+        }
+
+        recurringBills.filter { it.isActive }.forEach { bill ->
+            val dueDate = LoanDateUtils.calculateNextDueDate(today, listOf(bill.dueDay))
+            if (!dueDate.isAfter(maxDueLimit)) {
+                val daysUntilDue = ChronoUnit.DAYS.between(today, dueDate)
+                val status = LoanDateUtils.getDueDateStatus(dueDate, today)
+                obligations.add(
+                    UpcomingObligation(
+                        id = bill.id,
+                        title = bill.name,
+                        amount = bill.amount,
+                        dueDate = dueDate,
+                        daysUntilDue = daysUntilDue,
+                        status = status,
+                        typeLabel = "Bill"
+                    )
+                )
+            }
+        }
+
+        return obligations.sortedBy { it.dueDate }
+    }
+
+    /**
      * Tier 1: Upcoming Obligations.
      * Loans, bills, BNPL installments due in next 30 days.
      */
@@ -236,8 +296,9 @@ object ReportsAnalyticsCalculator {
         // 1. Loans & BNPL accounts
         loans.filter { it.account.isActive && it.loanDetails != null }.forEach { item ->
             val details = item.loanDetails!!
-            if (details.cycleDay1 in 1..31) {
-                val dueDate = LoanDateUtils.calculateNextDueDate(today, details.cycleDay1, details.cycleDay2)
+            val dueDays = details.parseDueDays()
+            if (dueDays.isNotEmpty()) {
+                val dueDate = LoanDateUtils.calculateNextDueDate(today, dueDays)
                 if (!dueDate.isAfter(maxDueLimit)) {
                     val amount = if (details.minimumAmountDue > 0) details.minimumAmountDue else details.totalRemainingBalance
                     val daysUntilDue = ChronoUnit.DAYS.between(today, dueDate)
@@ -261,8 +322,9 @@ object ReportsAnalyticsCalculator {
         // 2. Bills
         bills.filter { it.account.isActive && it.billDetails != null }.forEach { item ->
             val details = item.billDetails!!
-            if (details.dueDay in 1..31) {
-                val dueDate = LoanDateUtils.calculateNextDueDate(today, details.dueDay, null)
+            val dueDays = details.parseDueDays()
+            if (dueDays.isNotEmpty()) {
+                val dueDate = LoanDateUtils.calculateNextDueDate(today, dueDays)
                 if (!dueDate.isAfter(maxDueLimit)) {
                     val amount = details.amountDue ?: 0L
                     val daysUntilDue = ChronoUnit.DAYS.between(today, dueDate)
@@ -286,14 +348,14 @@ object ReportsAnalyticsCalculator {
         val loanMap = loans.associateBy { it.account.id }
         installments.filter { it.remainingBalance > 0 }.forEach { plan ->
             val parentLoan = loanMap[plan.accountId]
-            val cycleDay = parentLoan?.loanDetails?.cycleDay1 ?: run {
+            val dueDays = parentLoan?.loanDetails?.parseDueDays() ?: run {
                 val purchaseDay = Instant.ofEpochMilli(plan.purchaseDate)
                     .atZone(ZoneId.systemDefault())
                     .toLocalDate()
                     .dayOfMonth
-                cycleDayClamp(purchaseDay)
+                listOf(cycleDayClamp(purchaseDay))
             }
-            val dueDate = LoanDateUtils.calculateNextDueDate(today, cycleDay, null)
+            val dueDate = LoanDateUtils.calculateNextDueDate(today, dueDays)
             if (!dueDate.isAfter(maxDueLimit)) {
                 val amount = plan.monthlyPaymentAmount.coerceAtMost(plan.remainingBalance)
                 val daysUntilDue = ChronoUnit.DAYS.between(today, dueDate)

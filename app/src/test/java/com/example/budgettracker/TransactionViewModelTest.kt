@@ -163,7 +163,10 @@ class TransactionViewModelTest {
 
     @Test
     fun testInstallmentPlanCreation() = runBlocking {
-        viewModel.setAccountId(account1Id)
+        val bnplId = repository.insertAccount(
+            AccountEntity(name = "SPayLater", type = AccountType.BNPL, initialBalance = 0L)
+        )
+        viewModel.setAccountId(bnplId)
         viewModel.setTransactionType(TransactionType.INSTALLMENT)
         viewModel.onDigitInput("6000")
         viewModel.setTotalInstallments("6")
@@ -452,5 +455,18 @@ class TransactionViewModelTest {
         assertEquals("₱1,250", resolvedPreview)
         assertEquals("₱1,250", resolvedCalc)
         assertEquals(125000L, viewModel.amountCentavos)
+    }
+
+    @Test
+    fun testPayBillTransferLocksDestinationAndLeavesSourceEmpty() = runBlocking {
+        viewModel.prepareForTransfer(toAccountId = 42L, amountCentavos = 2_500_00L)
+        assertEquals(TransactionType.TRANSFER, viewModel.selectedType.value)
+        assertEquals(42L, viewModel.selectedToAccountId.value)
+        assertNull(viewModel.selectedAccountId.value)
+        assertTrue(viewModel.isToAccountLocked.value)
+        assertEquals(250000L, viewModel.amountCentavos)
+
+        viewModel.resetFormForNextEntry()
+        assertFalse(viewModel.isToAccountLocked.value)
     }
 }

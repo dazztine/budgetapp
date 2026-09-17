@@ -290,8 +290,8 @@ fun QuickParseScreen(
                 showCreateAccountDialog = false
                 candidateAccountToCreate = null
             },
-            onSaveFull = { acc, loan, sav, bill ->
-                viewModel.createAccount(acc, loan, sav, bill)
+            onSaveFull = { acc, loan, sav, bill, credit ->
+                viewModel.createAccount(acc, loan, sav, bill, credit)
                 showCreateAccountDialog = false
                 candidateAccountToCreate = null
             }

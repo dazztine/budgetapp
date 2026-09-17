@@ -115,8 +115,7 @@ class DashboardViewModelTest {
         )
         val loanDetails = LoanAccountDetailsEntity(
             accountId = 0L,
-            cycleDay1 = 15,
-            cycleDay2 = 30,
+            dueDays = "15,30",
             minimumAmountDue = 2_000L,
             totalRemainingBalance = 10_000L,
             reminderEnabled = true,
@@ -137,7 +136,7 @@ class DashboardViewModelTest {
         val loanAccs = viewModel.loanAccounts.first { it.isNotEmpty() }
         assertEquals(1, loanAccs.size)
         assertEquals("SPayLater", loanAccs[0].account.name)
-        assertEquals(15, loanAccs[0].loanDetails?.cycleDay1)
+        assertEquals(listOf(15, 30), loanAccs[0].loanDetails?.parseDueDays())
     }
 
     @Test

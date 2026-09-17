@@ -6,15 +6,29 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.budgettracker.data.local.AppDatabase
 import com.example.budgettracker.data.local.dao.AccountDao
 import com.example.budgettracker.data.local.dao.BillDetailsDao
+import com.example.budgettracker.data.local.dao.CreditDetailsDao
+import com.example.budgettracker.data.local.dao.InstallmentPlanDao
 import com.example.budgettracker.data.local.dao.LoanDetailsDao
+import com.example.budgettracker.data.local.dao.SavingsDetailsDao
 import com.example.budgettracker.data.local.dao.TransactionDao
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.BillAmountType
+import com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.CustomCategoryEntity
+import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.LoanBillingCycleEntity
+import com.example.budgettracker.data.local.entity.RecurringBillEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.AccountType
 import com.example.budgettracker.data.model.TransactionType
+import com.example.budgettracker.data.repository.BudgetRepository
+import com.example.budgettracker.data.repository.CyclePaymentResult
+import com.example.budgettracker.util.CurrencyUtils
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -38,6 +52,10 @@ class DatabaseBalanceUnitTest {
     private lateinit var transactionDao: TransactionDao
     private lateinit var loanDetailsDao: LoanDetailsDao
     private lateinit var billDetailsDao: BillDetailsDao
+    private lateinit var installmentPlanDao: InstallmentPlanDao
+    private lateinit var savingsDetailsDao: SavingsDetailsDao
+    private lateinit var creditDetailsDao: CreditDetailsDao
+    private lateinit var repository: BudgetRepository
 
     @Before
     fun setup() {
@@ -51,6 +69,21 @@ class DatabaseBalanceUnitTest {
         transactionDao = database.transactionDao()
         loanDetailsDao = database.loanDetailsDao()
         billDetailsDao = database.billDetailsDao()
+        installmentPlanDao = database.installmentPlanDao()
+        savingsDetailsDao = database.savingsDetailsDao()
+        creditDetailsDao = database.creditDetailsDao()
+        repository = BudgetRepository(
+            accountDao = accountDao,
+            transactionDao = transactionDao,
+            loanDetailsDao = loanDetailsDao,
+            installmentPlanDao = installmentPlanDao,
+            savingsDetailsDao = savingsDetailsDao,
+            billDetailsDao = billDetailsDao,
+            loanBillingCycleDao = database.loanBillingCycleDao(),
+            customCategoryDao = database.customCategoryDao(),
+            recurringBillDao = database.recurringBillDao(),
+            creditDetailsDao = creditDetailsDao
+        )
     }
 
     @After
@@ -406,8 +439,7 @@ class DatabaseBalanceUnitTest {
 
         val loanDetails = LoanAccountDetailsEntity(
             accountId = loanAccId,
-            cycleDay1 = 15,
-            cycleDay2 = 30,
+            dueDays = "15,30",
             minimumAmountDue = 5_000L,
             totalRemainingBalance = 50_000L,
             reminderEnabled = true,
@@ -417,7 +449,7 @@ class DatabaseBalanceUnitTest {
 
         val retrievedLoanDetails = loanDetailsDao.getByAccountId(loanAccId)
         assertNotNull(retrievedLoanDetails)
-        assertEquals(15, retrievedLoanDetails?.cycleDay1)
+        assertEquals(listOf(15, 30), retrievedLoanDetails?.parseDueDays())
 
         // Hard-delete the account (no transactions exist)
         val account = accountDao.getById(loanAccId)!!
@@ -605,7 +637,7 @@ class DatabaseBalanceUnitTest {
         billDetailsDao.insert(
             BillAccountDetailsEntity(
                 accountId = billId,
-                dueDay = 15,
+                dueDays = "15",
                 amountDue = 10_000_000L,
                 amountType = BillAmountType.FIXED
             )
@@ -630,5 +662,851 @@ class DatabaseBalanceUnitTest {
         val loanAccounts = accountDao.getAllActiveLoanAccounts().first()
         assertTrue(loanAccounts.none { it.account.id == billId })
         assertTrue(loanAccounts.none { it.account.id == billWithBalanceId })
+    }
+
+    @Test
+    fun testSumOfComputedBalancesEqualsTotalNetWorthAcrossAllTransactionTypes() = runBlocking {
+        // Invariant helper:
+        // 1. Every active account's repository.getComputedBalance(id) MUST equal account.currentBalance in activeAccountsWithBalances.
+        // 2. The sum of currentBalance across all active accounts with includeInNetWorth = true MUST strictly equal repository.totalNetWorth.
+        suspend fun assertBalanceAndNetWorthInvariant(stepDescription: String) {
+            val activeAccounts = repository.activeAccountsWithBalances.first()
+            var calculatedNetWorth = 0L
+
+            for (acc in activeAccounts) {
+                val computedBalance = repository.getComputedBalance(acc.id).first()
+                assertEquals(
+                    "[$stepDescription] Account ${acc.name} getComputedBalance() should match currentBalance",
+                    computedBalance,
+                    acc.currentBalance
+                )
+                if (acc.includeInNetWorth) {
+                    calculatedNetWorth += acc.currentBalance
+                }
+            }
+
+            val totalNetWorth = repository.totalNetWorth.first()
+            assertEquals(
+                "[$stepDescription] Sum of included active accounts' currentBalance must equal totalNetWorth",
+                calculatedNetWorth,
+                totalNetWorth
+            )
+        }
+
+        // 1. Initial State: Create multiple accounts
+        // - acc1: Bank, included in net worth, initialBalance = 100,000 centavos (₱1,000.00)
+        // - acc2: E-Wallet, included in net worth, initialBalance = 50,000 centavos (₱500.00)
+        // - acc3: Cash, EXCLUDED from net worth, initialBalance = 20,000 centavos (₱200.00)
+        // - acc4: Loan/Credit, included in net worth (liability/negative initialBalance = -30,000 centavos (-₱300.00))
+        val acc1Id = repository.insertAccount(
+            AccountEntity(
+                name = "BDO Bank",
+                type = AccountType.BANK,
+                initialBalance = 100_000L,
+                includeInNetWorth = true
+            )
+        )
+        val acc2Id = repository.insertAccount(
+            AccountEntity(
+                name = "GCash",
+                type = AccountType.E_WALLET,
+                initialBalance = 50_000L,
+                includeInNetWorth = true
+            )
+        )
+        val acc3Id = repository.insertAccount(
+            AccountEntity(
+                name = "Physical Cash",
+                type = AccountType.CASH,
+                initialBalance = 20_000L,
+                includeInNetWorth = false
+            )
+        )
+        val acc4Id = repository.insertAccount(
+            AccountEntity(
+                name = "Credit Card",
+                type = AccountType.LOAN,
+                initialBalance = -30_000L,
+                includeInNetWorth = true
+            )
+        )
+
+        // Expected Net Worth: 100,000 + 50,000 - 30,000 = 120,000 centavos (acc3 excluded)
+        assertBalanceAndNetWorthInvariant("Initial state")
+        assertEquals(120_000L, repository.totalNetWorth.first())
+
+        val now = System.currentTimeMillis()
+
+        // 2. INCOME transaction (+25,000 centavos to acc1)
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.INCOME,
+                amount = 25_000L,
+                accountId = acc1Id,
+                category = "Salary",
+                title = "Paycheck",
+                timestamp = now + 1
+            )
+        )
+        assertBalanceAndNetWorthInvariant("After Income on acc1")
+        assertEquals(145_000L, repository.totalNetWorth.first())
+
+        // 3. EXPENSE transaction (-10,000 centavos from acc2)
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 10_000L,
+                accountId = acc2Id,
+                category = "Food",
+                title = "Dinner",
+                timestamp = now + 2
+            )
+        )
+        assertBalanceAndNetWorthInvariant("After Expense on acc2")
+        assertEquals(135_000L, repository.totalNetWorth.first())
+
+        // 4. TRANSFER transaction between two included accounts (acc1 -> acc2, 15,000 centavos)
+        // Net worth should NOT change
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 15_000L,
+                accountId = acc1Id,
+                toAccountId = acc2Id,
+                category = "Transfer",
+                title = "Fund E-wallet",
+                timestamp = now + 3
+            )
+        )
+        assertBalanceAndNetWorthInvariant("After Transfer acc1 -> acc2")
+        assertEquals(135_000L, repository.totalNetWorth.first())
+
+        // 5. TRANSFER from included account to excluded account (acc1 -> acc3, 5,000 centavos)
+        // Net worth should drop by 5,000
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 5_000L,
+                accountId = acc1Id,
+                toAccountId = acc3Id,
+                category = "ATM Withdrawal",
+                title = "Cash Out",
+                timestamp = now + 4
+            )
+        )
+        assertBalanceAndNetWorthInvariant("After Transfer acc1 -> acc3 (included to excluded)")
+        assertEquals(130_000L, repository.totalNetWorth.first())
+
+        // 6. TRANSFER from excluded account to included account (acc3 -> acc2, 2,000 centavos)
+        // Net worth should increase by 2,000
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 2_000L,
+                accountId = acc3Id,
+                toAccountId = acc2Id,
+                category = "Deposit",
+                title = "Deposit Cash",
+                timestamp = now + 5
+            )
+        )
+        assertBalanceAndNetWorthInvariant("After Transfer acc3 -> acc2 (excluded to included)")
+        assertEquals(132_000L, repository.totalNetWorth.first())
+
+        // 7. ADJUSTMENT transaction (logged balance adjustment, isAdjustment = true, INCOME on acc4 +10,000)
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.INCOME,
+                amount = 10_000L,
+                accountId = acc4Id,
+                isAdjustment = true,
+                category = "Adjustment",
+                title = "Balance Adjustment: Credit Card",
+                timestamp = now + 6
+            )
+        )
+        assertBalanceAndNetWorthInvariant("After Adjustment on acc4")
+        assertEquals(142_000L, repository.totalNetWorth.first())
+
+        // 8. INSTALLMENT transaction (-6,000 centavos from acc1)
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.INSTALLMENT,
+                amount = 6_000L,
+                accountId = acc1Id,
+                category = "Electronics",
+                title = "Gadget purchase",
+                timestamp = now + 7
+            )
+        )
+        assertBalanceAndNetWorthInvariant("After Installment on acc1")
+        assertEquals(136_000L, repository.totalNetWorth.first())
+
+        // 9. SOFT DELETE an account (acc2)
+        // acc2 balance: initial 50,000 - 10,000 (expense) + 15,000 (transfer in) + 2,000 (transfer in) = 57,000 centavos
+        repository.softDeleteAccount(acc2Id)
+        assertBalanceAndNetWorthInvariant("After Soft Delete acc2")
+        // Net worth should no longer include acc2: 136,000 - 57,000 = 79,000 centavos
+        assertEquals(79_000L, repository.totalNetWorth.first())
+        val activeAccountsAfterDelete = repository.activeAccountsWithBalances.first()
+        assertTrue(activeAccountsAfterDelete.none { it.id == acc2Id })
+
+        // 10. RESTORE the account (acc2)
+        repository.restoreAccount(acc2Id)
+        assertBalanceAndNetWorthInvariant("After Restore acc2")
+        assertEquals(136_000L, repository.totalNetWorth.first())
+        val activeAccountsAfterRestore = repository.activeAccountsWithBalances.first()
+        assertTrue(activeAccountsAfterRestore.any { it.id == acc2Id })
+    }
+
+    @Test
+    fun testPayBillTransferReducesLoanDebtTowardZero() = runBlocking {
+        // Source Bank account: ₱10,000.00 = 1,000,000 centavos
+        val bankId = repository.insertAccount(
+            AccountEntity(
+                name = "BPI Checking",
+                type = AccountType.BANK,
+                initialBalance = 1_000_000L
+            )
+        )
+
+        // Loan / BNPL account: ₱0 initial balance
+        val loanId = repository.insertAccount(
+            AccountEntity(
+                name = "SPayLater",
+                type = AccountType.LOAN,
+                initialBalance = 0L
+            )
+        )
+
+        // Log an Expense of ₱3,000.00 (300,000 centavos) on Loan account
+        val expenseId = repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 300_000L,
+                accountId = loanId,
+                category = "Electronics",
+                title = "Gadget purchase",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+        assertTrue(expenseId > 0)
+
+        // Computed balance of Loan account is now -300,000 centavos (-₱3,000.00)
+        assertEquals(-300_000L, repository.getComputedBalance(loanId).first())
+        assertEquals(1_000_000L, repository.getComputedBalance(bankId).first())
+        // Net worth: 1,000,000 + (-300,000) = 700,000
+        assertEquals(700_000L, repository.totalNetWorth.first())
+
+        // "Pay Bill" transfer: ₱1,000.00 (100,000 centavos) from Bank into Loan
+        val transferId = repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 100_000L,
+                accountId = bankId,
+                toAccountId = loanId,
+                category = "Bill Payment",
+                title = "Loan Bill Payment",
+                timestamp = System.currentTimeMillis() + 1000
+            )
+        )
+        assertTrue(transferId > 0)
+
+        // Assert Loan balance increased (moved toward zero / debt reduced) to -200,000 centavos
+        assertEquals(-200_000L, repository.getComputedBalance(loanId).first())
+        // Assert Bank balance decreased to 900,000 centavos
+        assertEquals(900_000L, repository.getComputedBalance(bankId).first())
+        // Assert Net worth conserved (900,000 + (-200,000) = 700,000)
+        assertEquals(700_000L, repository.totalNetWorth.first())
+    }
+
+    @Test
+    fun testLoanTotalOwedStaysAccurateWithPlainExpensesOutsideInstallments() = runBlocking {
+        val loanId = repository.insertAccount(
+            AccountEntity(
+                name = "Atome",
+                type = AccountType.BNPL,
+                initialBalance = 0L
+            )
+        )
+
+        // Plain direct expense 1 (no installment plan linked)
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 150_000L, // ₱1,500.00
+                accountId = loanId,
+                category = "Dining",
+                title = "Dinner with Friends",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+
+        var balance = repository.getComputedBalance(loanId).first()
+        assertEquals(-150_000L, balance)
+        assertEquals("-₱1,500.00", CurrencyUtils.formatCentavosToPesos(balance!!))
+
+        // Plain direct expense 2
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 85_000L, // ₱850.00
+                accountId = loanId,
+                category = "Shopping",
+                title = "Shoes",
+                timestamp = System.currentTimeMillis() + 1000
+            )
+        )
+
+        balance = repository.getComputedBalance(loanId).first()
+        assertEquals(-235_000L, balance)
+        assertEquals("-₱2,350.00", CurrencyUtils.formatCentavosToPesos(balance!!))
+    }
+
+    @Test
+    fun testAvailableCreditWithAndWithoutCreditLimit() {
+        // With limit ₱20,000.00 and debt ₱3,484.82 (balance = -348,482 centavos)
+        val limit = 2_000_000L
+        val balance = -348_482L
+        val available = BudgetRepository.calculateAvailableCredit(limit, balance)
+        assertEquals(1_651_518L, available) // ₱16,515.18
+
+        // Without credit limit (null)
+        val availableWithoutLimit = BudgetRepository.calculateAvailableCredit(null, balance)
+        assertNull(availableWithoutLimit)
+
+        // When debt exceeds limit, available credit is coerced to 0
+        val smallLimit = 100_000L
+        val largeDebt = -150_000L
+        val availableCapped = BudgetRepository.calculateAvailableCredit(smallLimit, largeDebt)
+        assertEquals(0L, availableCapped)
+    }
+
+    @Test
+    fun testCyclePaidTransitionLogic() = runBlocking {
+        val loanId = repository.insertAccount(
+            AccountEntity(
+                name = "Home Credit",
+                type = AccountType.LOAN,
+                initialBalance = 0L
+            )
+        )
+
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(
+                accountId = loanId,
+                dueDays = "15",
+                minimumAmountDue = 250_000L,
+                totalRemainingBalance = 500_000L,
+                reminderEnabled = true,
+                reminderDaysBefore = 7
+            )
+        )
+
+        // Ensure pending cycles exist
+        repository.ensurePendingCyclesForAccount(loanId, listOf(15), 250_000L)
+
+        val pendingCycles = repository.getPendingBillingCycles(loanId).first()
+        assertEquals(1, pendingCycles.size)
+        assertEquals(250_000L, pendingCycles[0].amountDue)
+        assertFalse(pendingCycles[0].isPaid)
+
+        // Mark cycle as paid
+        repository.markBillingCyclePaid(pendingCycles[0].id, 250_000L)
+
+        // Verify pending cycles contains the rolled-over next cycle (Bug 2 fix)
+        val pendingAfter = repository.getPendingBillingCycles(loanId).first()
+        assertEquals(1, pendingAfter.size)
+        assertFalse(pendingAfter[0].id == pendingCycles[0].id)
+        assertFalse(pendingAfter[0].isPaid)
+
+        // Verify paid billing cycles contains 1 record
+        val paidCycles = repository.getPaidBillingCycles(loanId).first()
+        assertEquals(1, paidCycles.size)
+        assertEquals(250_000L, paidCycles[0].paidAmount)
+        assertTrue(paidCycles[0].isPaid)
+        assertEquals(pendingCycles[0].id, paidCycles[0].id)
+    }
+
+    @Test
+    fun testCustomCategoryDuplicateNamePrevention() = runBlocking {
+        // Insert custom category "Shopping" for EXPENSE
+        repository.insertCustomCategory(
+            CustomCategoryEntity(
+                name = "Shopping",
+                transactionType = TransactionType.EXPENSE,
+                iconName = "shopping_bag"
+            )
+        )
+
+        // Attempting to insert lowercase "shopping" should fail
+        var caughtException = false
+        try {
+            repository.insertCustomCategory(
+                CustomCategoryEntity(
+                    name = "shopping",
+                    transactionType = TransactionType.EXPENSE,
+                    iconName = "shopping_bag"
+                )
+            )
+        } catch (e: IllegalArgumentException) {
+            caughtException = true
+        }
+        assertTrue("Expected IllegalArgumentException for duplicate case-insensitive category name", caughtException)
+
+        // Attempting to insert with padding "  Shopping  " should also fail
+        var caughtWhitespace = false
+        try {
+            repository.insertCustomCategory(
+                CustomCategoryEntity(
+                    name = "  Shopping  ",
+                    transactionType = TransactionType.EXPENSE,
+                    iconName = "shopping_bag"
+                )
+            )
+        } catch (e: IllegalArgumentException) {
+            caughtWhitespace = true
+        }
+        assertTrue("Expected IllegalArgumentException for whitespace-padded category name", caughtWhitespace)
+
+        // Inserting "Shopping" for INCOME (different transaction type) should succeed
+        val incomeCatId = repository.insertCustomCategory(
+            CustomCategoryEntity(
+                name = "Shopping",
+                transactionType = TransactionType.INCOME,
+                iconName = "shopping_bag"
+            )
+        )
+        assertTrue(incomeCatId > 0)
+
+        val expenseCats = repository.getCustomCategories(TransactionType.EXPENSE).first()
+        assertEquals(1, expenseCats.size)
+
+        val incomeCats = repository.getCustomCategories(TransactionType.INCOME).first()
+        assertEquals(1, incomeCats.size)
+    }
+
+    @Test
+    fun testDashboardWidgetAndAccountCurrentTabAlwaysAgreeOnPendingCycles() = runBlocking {
+        val mayaId = accountDao.insert(
+            AccountEntity(name = "Maya Credit", type = AccountType.LOAN, initialBalance = 0L)
+        )
+        val spayId = accountDao.insert(
+            AccountEntity(name = "SPayLater", type = AccountType.BNPL, initialBalance = 0L)
+        )
+
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = mayaId, dueDays = "15,30", minimumAmountDue = 100_000L, totalRemainingBalance = 500_000L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = spayId, dueDays = "5", minimumAmountDue = 50_000L, totalRemainingBalance = 200_000L)
+        )
+
+        repository.ensurePendingCyclesForAccount(mayaId, listOf(15, 30), 100_000L)
+        repository.ensurePendingCyclesForAccount(spayId, listOf(5), 50_000L)
+
+        val allPending = repository.getAllPendingBillingCycles().first()
+        assertEquals(3, allPending.size)
+
+        val mayaPending = repository.getPendingBillingCycles(mayaId).first()
+        val spayPending = repository.getPendingBillingCycles(spayId).first()
+
+        assertEquals(2, mayaPending.size)
+        assertEquals(1, spayPending.size)
+
+        val dashboardMayaCycles = allPending.filter { it.accountId == mayaId }
+        assertEquals(mayaPending.map { it.id }.toSet(), dashboardMayaCycles.map { it.id }.toSet())
+        assertEquals(mayaPending.map { it.amountDue }, dashboardMayaCycles.map { it.amountDue })
+
+        repository.markBillingCyclePaid(mayaPending.first().id, 100_000L)
+
+        val allPendingAfter = repository.getAllPendingBillingCycles().first()
+        val mayaPendingAfter = repository.getPendingBillingCycles(mayaId).first()
+        assertEquals(3, allPendingAfter.size)
+        assertEquals(2, mayaPendingAfter.size)
+        val dashboardMayaCyclesAfter = allPendingAfter.filter { it.accountId == mayaId }
+        assertEquals(mayaPendingAfter.map { it.id }.toSet(), dashboardMayaCyclesAfter.map { it.id }.toSet())
+    }
+
+    @Test
+    fun testMultipleDueDatesPerAccountIndependentCycles() = runBlocking {
+        val loanId = accountDao.insert(
+            AccountEntity(name = "Multi-Cycle Loan", type = AccountType.LOAN, initialBalance = 0L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = loanId, dueDays = "1,15,30", minimumAmountDue = 50_000L, totalRemainingBalance = 150_000L)
+        )
+
+        repository.ensurePendingCyclesForAccount(loanId, listOf(1, 15, 30), 50_000L)
+
+        val pending = repository.getPendingBillingCycles(loanId).first()
+        assertEquals(3, pending.size)
+
+        val firstCycle = pending[0]
+        repository.markBillingCyclePaid(firstCycle.id, 50_000L)
+
+        val remainingPending = repository.getPendingBillingCycles(loanId).first()
+        assertEquals(3, remainingPending.size)
+        assertFalse(remainingPending.any { it.id == firstCycle.id })
+
+        val paid = repository.getPaidBillingCycles(loanId).first()
+        assertEquals(1, paid.size)
+        assertEquals(firstCycle.id, paid[0].id)
+    }
+
+    @Test
+    fun testCaughtUpEmptyStateTriggerCondition() = runBlocking {
+        val loanId = accountDao.insert(
+            AccountEntity(name = "GLoan", type = AccountType.LOAN, initialBalance = 0L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = loanId, dueDays = "10", minimumAmountDue = 80_000L, totalRemainingBalance = 80_000L)
+        )
+
+        repository.ensurePendingCyclesForAccount(loanId, listOf(10), 80_000L)
+        val pending1 = repository.getPendingBillingCycles(loanId).first()
+        assertEquals(1, pending1.size)
+
+        repository.markBillingCyclePaid(pending1[0].id, 80_000L)
+        val pendingAfter = repository.getPendingBillingCycles(loanId).first()
+        assertTrue(pendingAfter.isEmpty())
+    }
+
+    @Test
+    fun testInstallmentToBalanceAutomaticSync() = runBlocking {
+        val loanId = accountDao.insert(
+            AccountEntity(name = "BPI Credit Card", type = AccountType.LOAN, initialBalance = 0L)
+        )
+
+        val initialBalance = repository.getComputedBalance(loanId).first() ?: 0L
+        assertEquals(0L, initialBalance)
+
+        val planId = repository.insertInstallmentPlan(
+            InstallmentPlanEntity(
+                accountId = loanId,
+                title = "MacBook Pro",
+                category = "Electronics",
+                totalPurchaseAmount = 120_000_00L,
+                totalInstallments = 12,
+                installmentsPaid = 0,
+                remainingBalance = 120_000_00L,
+                monthlyPaymentAmount = 10_000_00L,
+                purchaseDate = System.currentTimeMillis()
+            )
+        )
+        assertTrue(planId > 0)
+
+        val balanceAfterInsert = repository.getComputedBalance(loanId).first() ?: 0L
+        assertEquals(-120_000_00L, balanceAfterInsert)
+
+        val txs = transactionDao.getByInstallmentPlanDirect(planId)
+        assertEquals(1, txs.size)
+        assertEquals(TransactionType.INSTALLMENT, txs[0].type)
+        assertEquals(120_000_00L, txs[0].amount)
+
+        val plan = installmentPlanDao.getById(planId)!!
+        repository.updateInstallmentPlan(plan.copy(totalPurchaseAmount = 100_000_00L, remainingBalance = 100_000_00L))
+
+        val balanceAfterUpdate = repository.getComputedBalance(loanId).first() ?: 0L
+        assertEquals(-100_000_00L, balanceAfterUpdate)
+
+        repository.deleteInstallmentPlan(plan)
+        val balanceAfterDelete = repository.getComputedBalance(loanId).first() ?: 0L
+        assertEquals(0L, balanceAfterDelete)
+        val txsAfterDelete = transactionDao.getByInstallmentPlanDirect(planId)
+        assertTrue(txsAfterDelete.isEmpty())
+    }
+
+    @Test
+    fun testUpcomingBillsNavigationRouting() = runBlocking {
+        val loanId = accountDao.insert(
+            AccountEntity(name = "LazPayLater", type = AccountType.BNPL, initialBalance = 0L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = loanId, dueDays = "15", minimumAmountDue = 30_000L, totalRemainingBalance = 60_000L)
+        )
+        repository.ensurePendingCyclesForAccount(loanId, listOf(15), 30_000L)
+
+        val recurringBillId = repository.insertRecurringBill(
+            RecurringBillEntity(name = "Converge Fiber", amount = 150_000L, dueDay = 20)
+        )
+        assertTrue(recurringBillId > 0)
+
+        val pendingCycles = repository.getAllPendingBillingCycles().first()
+        val recurringBills = repository.activeRecurringBills.first()
+
+        val cycleItem = pendingCycles.first()
+        assertEquals(loanId, cycleItem.accountId)
+
+        val billItem = recurringBills.first()
+        assertEquals(recurringBillId, billItem.id)
+        assertNull(billItem.accountId)
+    }
+
+    @Test
+    fun testCreditSingleCycleGeneration() = runBlocking {
+        val creditId = accountDao.insert(
+            AccountEntity(name = "BPI Credit Card", type = AccountType.CREDIT, initialBalance = -5_000_00L)
+        )
+        creditDetailsDao.insert(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 50_000_00L, statementDueDay = 15)
+        )
+
+        val today = LocalDate.of(2026, 9, 17)
+        repository.ensurePendingCyclesForAccount(creditId, today)
+
+        val pendingCycles = repository.getPendingBillingCycles(creditId).first()
+        assertEquals(1, pendingCycles.size)
+        val cycle = pendingCycles[0]
+        assertEquals(creditId, cycle.accountId)
+        assertEquals(5_000_00L, cycle.amountDue)
+        assertFalse(cycle.isPaid)
+        assertFalse(cycle.isManualOverride)
+
+        // Calling ensurePendingCyclesForAccount again does not duplicate
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        val pendingAfter = repository.getPendingBillingCycles(creditId).first()
+        assertEquals(1, pendingAfter.size)
+    }
+
+    @Test
+    fun testCreditAutoComputedButOverridableStatementAmount() = runBlocking {
+        val creditId = accountDao.insert(
+            AccountEntity(name = "Citi Rewards", type = AccountType.CREDIT, initialBalance = -5_000_00L)
+        )
+        creditDetailsDao.insert(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 100_000_00L, statementDueDay = 20)
+        )
+        val today = LocalDate.of(2026, 9, 17)
+        repository.ensurePendingCyclesForAccount(creditId, today)
+
+        var pending = repository.getPendingBillingCycles(creditId).first().first()
+        assertEquals(5_000_00L, pending.amountDue)
+        assertFalse(pending.isManualOverride)
+
+        // Make an expense transaction on this card
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 1_500_00L,
+                accountId = creditId,
+                category = "Groceries",
+                title = "Supermarket",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+        val balance = repository.getComputedBalance(creditId).first() ?: 0L
+        assertEquals(-6_500_00L, balance)
+
+        // Re-running ensurePendingCycles should auto-sync statement amount
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        pending = repository.getPendingBillingCycles(creditId).first().first()
+        assertEquals(6_500_00L, pending.amountDue)
+        assertFalse(pending.isManualOverride)
+
+        // User overrides amount due manually to ₱4,000.00
+        repository.updateCycleAmountDue(pending.id, 4_000_00L, isManualOverride = true)
+        pending = repository.getPendingBillingCycles(creditId).first().first()
+        assertEquals(4_000_00L, pending.amountDue)
+        assertTrue(pending.isManualOverride)
+
+        // Another purchase is made
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 500_00L,
+                accountId = creditId,
+                category = "Dining",
+                title = "Coffee",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+        // ensurePendingCycles should NOT overwrite user manual override
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        pending = repository.getPendingBillingCycles(creditId).first().first()
+        assertEquals(4_000_00L, pending.amountDue)
+        assertTrue(pending.isManualOverride)
+    }
+
+    @Test
+    fun testPartialPaymentReducesAmountDueAndKeepsPending() = runBlocking {
+        val creditId = accountDao.insert(
+            AccountEntity(name = "UnionBank Miles", type = AccountType.CREDIT, initialBalance = -10_000_00L)
+        )
+        creditDetailsDao.insert(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 80_000_00L, statementDueDay = 25)
+        )
+        val today = LocalDate.of(2026, 9, 17)
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        val cycle = repository.getPendingBillingCycles(creditId).first().first()
+        assertEquals(10_000_00L, cycle.amountDue)
+
+        // Pay partial amount: ₱4,000.00
+        val result = repository.recordBillingCyclePayment(cycle.id, 4_000_00L)
+        assertTrue(result is CyclePaymentResult.Partial)
+        val partial = result as CyclePaymentResult.Partial
+        assertEquals(4_000_00L, partial.amountPaid)
+        assertEquals(6_000_00L, partial.remainingDue)
+
+        // Verify cycle in database
+        val pendingCycles = repository.getPendingBillingCycles(creditId).first()
+        assertEquals(1, pendingCycles.size)
+        val updatedCycle = pendingCycles.first()
+        assertEquals(6_000_00L, updatedCycle.amountDue)
+        assertEquals(4_000_00L, updatedCycle.paidAmount)
+        assertFalse(updatedCycle.isPaid)
+        assertNull(updatedCycle.paidDate)
+    }
+
+    @Test
+    fun testOverpaymentMarksPaidInFullAndAbsorbsOverpayment() = runBlocking {
+        val creditId = accountDao.insert(
+            AccountEntity(name = "RCBC Hexagon", type = AccountType.CREDIT, initialBalance = -3_000_00L)
+        )
+        creditDetailsDao.insert(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 100_000_00L, statementDueDay = 10)
+        )
+        val today = LocalDate.of(2026, 9, 17)
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        val cycle = repository.getPendingBillingCycles(creditId).first().first()
+        assertEquals(3_000_00L, cycle.amountDue)
+
+        // Overpay: ₱5,000.00 on a ₱3,000.00 statement (recording payment transaction reflects balance)
+        val checkingId = accountDao.insert(
+            AccountEntity(name = "BDO Bank", type = AccountType.BANK, initialBalance = 10_000_00L)
+        )
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 5_000_00L,
+                accountId = checkingId,
+                toAccountId = creditId,
+                category = "Payment",
+                title = "Card Payment",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+        val result = repository.recordBillingCyclePayment(cycle.id, 5_000_00L)
+        assertTrue(result is CyclePaymentResult.PaidInFull)
+        val paidInFull = result as CyclePaymentResult.PaidInFull
+        assertEquals(5_000_00L, paidInFull.amountPaid)
+        assertEquals(2_000_00L, paidInFull.overpaymentAmount)
+
+        // Verify cycle in database is settled and no new cycle needed since balance is now positive (₱2,000 credit)
+        val pendingCycles = repository.getPendingBillingCycles(creditId).first()
+        assertTrue(pendingCycles.isEmpty())
+
+        val paidCycles = repository.getPaidBillingCycles(creditId).first()
+        assertEquals(1, paidCycles.size)
+        val settledCycle = paidCycles.first()
+        assertEquals(3_000_00L, settledCycle.amountDue)
+        assertEquals(5_000_00L, settledCycle.paidAmount)
+        assertTrue(settledCycle.isPaid)
+        assertNotNull(settledCycle.paidDate)
+    }
+
+    @Test
+    fun testAutomaticCycleRolloverOnPaidInFull() = runBlocking {
+        val creditId = accountDao.insert(
+            AccountEntity(name = "Metrobank Titanium", type = AccountType.CREDIT, initialBalance = -4_000_00L)
+        )
+        creditDetailsDao.insert(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 50_000_00L, statementDueDay = 15)
+        )
+        val today = LocalDate.of(2026, 9, 17)
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        val cycle = repository.getPendingBillingCycles(creditId).first().first()
+
+        // Pay in full
+        val result = repository.recordBillingCyclePayment(cycle.id, 4_000_00L)
+        assertTrue(result is CyclePaymentResult.PaidInFull)
+
+        // Make another purchase for next cycle
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 2_500_00L,
+                accountId = creditId,
+                category = "Shopping",
+                title = "Shoes",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+
+        // Rollover: generate next cycle
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        val newPendingCycles = repository.getPendingBillingCycles(creditId).first()
+        assertEquals(1, newPendingCycles.size)
+        val nextCycle = newPendingCycles.first()
+        assertFalse(nextCycle.isPaid)
+        val nextDueDate = Instant.ofEpochMilli(nextCycle.cycleDueDate).atZone(ZoneId.systemDefault()).toLocalDate()
+        assertEquals(15, nextDueDate.dayOfMonth)
+        assertEquals(10, nextDueDate.monthValue)
+        assertEquals(2026, nextDueDate.year)
+    }
+
+    @Test
+    fun testNoCycleGeneratedWhenBalanceIsZeroOrPositiveAtCreationForLoanBnplCredit() = runBlocking {
+        // Loan with 0 balance and 0 remaining debt
+        val loanId = accountDao.insert(
+            AccountEntity(name = "Zero Loan", type = AccountType.LOAN, initialBalance = 0L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = loanId, dueDays = "15", minimumAmountDue = 100_000L, totalRemainingBalance = 0L)
+        )
+        val loanPending = repository.getPendingBillingCycles(loanId).first()
+        assertTrue(loanPending.isEmpty())
+
+        // BNPL with 0 balance and 0 remaining debt
+        val bnplId = accountDao.insert(
+            AccountEntity(name = "Zero BNPL", type = AccountType.BNPL, initialBalance = 0L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = bnplId, dueDays = "20", minimumAmountDue = 50_000L, totalRemainingBalance = 0L)
+        )
+        val bnplPending = repository.getPendingBillingCycles(bnplId).first()
+        assertTrue(bnplPending.isEmpty())
+
+        // Credit with 0 balance
+        val creditId = accountDao.insert(
+            AccountEntity(name = "Zero Credit", type = AccountType.CREDIT, initialBalance = 0L)
+        )
+        repository.insertCreditDetails(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 50_000_00L, statementDueDay = 15)
+        )
+        val creditPending = repository.getPendingBillingCycles(creditId).first()
+        assertTrue(creditPending.isEmpty())
+    }
+
+    @Test
+    fun testStartingBalanceDefaultsToZeroForLoanBnplCredit() = runBlocking {
+        val today = LocalDate.of(2026, 9, 17)
+
+        val creditId = accountDao.insert(
+            AccountEntity(name = "New Card", type = AccountType.CREDIT, initialBalance = 0L)
+        )
+        repository.insertCreditDetails(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 30_000_00L, statementDueDay = 10)
+        )
+        assertEquals(0L, repository.getComputedBalance(creditId).first())
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        assertTrue(repository.getPendingBillingCycles(creditId).first().isEmpty())
+
+        // Once a debt is incurred (e.g., expense), cycle is created
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 2_000_00L,
+                accountId = creditId,
+                category = "Groceries",
+                title = "Market",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+        assertEquals(-2_000_00L, repository.getComputedBalance(creditId).first())
+        repository.ensurePendingCyclesForAccount(creditId, today)
+        val pendingAfterExpense = repository.getPendingBillingCycles(creditId).first()
+        assertEquals(1, pendingAfterExpense.size)
+        assertEquals(2_000_00L, pendingAfterExpense.first().amountDue)
     }
 }

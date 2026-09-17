@@ -179,11 +179,11 @@ class ReportsAnalyticsCalculatorTest {
         val today = LocalDate.of(2026, 9, 16)
 
         val loanAccount = AccountEntity(id = 10, name = "Maya Credit", type = AccountType.LOAN)
-        val loanDetails = LoanAccountDetailsEntity(accountId = 10, cycleDay1 = 20, minimumAmountDue = 2500L, totalRemainingBalance = 10000L)
+        val loanDetails = LoanAccountDetailsEntity(accountId = 10, dueDays = "20", minimumAmountDue = 2500L, totalRemainingBalance = 10000L)
         val loans = listOf(AccountWithLoanDetails(loanAccount, loanDetails))
 
         val billAccount = AccountEntity(id = 20, name = "Meralco", type = AccountType.BILL)
-        val billDetails = BillAccountDetailsEntity(accountId = 20, dueDay = 25, amountDue = 3200L)
+        val billDetails = BillAccountDetailsEntity(accountId = 20, dueDays = "25", amountDue = 3200L)
         val bills = listOf(AccountWithBillDetails(billAccount, billDetails))
 
         val installments = listOf(

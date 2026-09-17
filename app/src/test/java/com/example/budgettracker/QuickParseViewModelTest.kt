@@ -157,7 +157,6 @@ class QuickParseViewModelTest {
 
         val loanDetails = repository.getLoanDetailsByAccountId(spaylaterAcc!!.id)
         assertNotNull(loanDetails)
-        assertEquals(15, loanDetails?.cycleDay1)
-        assertEquals(30, loanDetails?.cycleDay2)
+        assertEquals(listOf(15, 30), loanDetails?.parseDueDays())
     }
 }

@@ -102,6 +102,12 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE installmentPlanId = :planId ORDER BY timestamp DESC, id DESC")
     fun getByInstallmentPlan(planId: Long): Flow<List<TransactionEntity>>
 
+    @Query("SELECT * FROM transactions WHERE installmentPlanId = :planId ORDER BY timestamp DESC, id DESC")
+    suspend fun getByInstallmentPlanDirect(planId: Long): List<TransactionEntity>
+
+    @Query("DELETE FROM transactions WHERE installmentPlanId = :planId")
+    suspend fun deleteByInstallmentPlan(planId: Long): Int
+
     @Query("DELETE FROM transactions")
     suspend fun deleteAll(): Int
 }

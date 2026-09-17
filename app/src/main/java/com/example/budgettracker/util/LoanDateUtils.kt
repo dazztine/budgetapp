@@ -16,18 +16,15 @@ fun getDueDateStatus(dueDate: LocalDate, today: LocalDate = LocalDate.now()): Du
 object LoanDateUtils {
 
     /**
-     * Resolves the next upcoming due date given 1 or 2 monthly cycle days.
+     * Resolves the next upcoming due date given a list of monthly cycle days.
      * Automatically clamps cycle days to the valid length of the month (e.g. 30th in Feb -> 28/29).
      */
     fun calculateNextDueDate(
         today: LocalDate = LocalDate.now(),
-        cycleDay1: Int,
-        cycleDay2: Int? = null
+        dueDays: List<Int>
     ): LocalDate {
-        require(cycleDay1 in 1..31) { "cycleDay1 must be between 1 and 31" }
-        if (cycleDay2 != null) {
-            require(cycleDay2 in 1..31) { "cycleDay2 must be between 1 and 31" }
-        }
+        require(dueDays.isNotEmpty()) { "dueDays list must not be empty" }
+        dueDays.forEach { require(it in 1..31) { "dueDay $it must be between 1 and 31" } }
 
         val currentYm = YearMonth.from(today)
 
@@ -37,10 +34,7 @@ object LoanDateUtils {
         }
 
         // Check candidate dates in current month
-        val currentMonthCandidates = listOfNotNull(
-            resolveDay(currentYm, cycleDay1),
-            cycleDay2?.let { resolveDay(currentYm, it) }
-        ).filter { !it.isBefore(today) }
+        val currentMonthCandidates = dueDays.map { resolveDay(currentYm, it) }.filter { !it.isBefore(today) }
 
         if (currentMonthCandidates.isNotEmpty()) {
             return currentMonthCandidates.minOrNull()!!
@@ -48,12 +42,18 @@ object LoanDateUtils {
 
         // All dates in current month passed; look at next month
         val nextYm = currentYm.plusMonths(1)
-        val nextMonthCandidates = listOfNotNull(
-            resolveDay(nextYm, cycleDay1),
-            cycleDay2?.let { resolveDay(nextYm, it) }
-        )
+        val nextMonthCandidates = dueDays.map { resolveDay(nextYm, it) }
         return nextMonthCandidates.minOrNull()!!
     }
+
+    /**
+     * Overload for 1 or 2 cycle days.
+     */
+    fun calculateNextDueDate(
+        today: LocalDate = LocalDate.now(),
+        cycleDay1: Int,
+        cycleDay2: Int? = null
+    ): LocalDate = calculateNextDueDate(today, listOfNotNull(cycleDay1, cycleDay2))
 
     /**
      * Checks whether a due date falls within the reminder threshold.

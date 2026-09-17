@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import com.example.budgettracker.ui.transaction.components.CategorySelectionBottomSheet
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -77,13 +78,13 @@ import com.example.budgettracker.util.CurrencyUtils
 fun ManualTransactionScreen(
     viewModel: TransactionViewModel,
     onNavigateBack: () -> Unit,
+    onNavigateToAccounts: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val amountInput by viewModel.amountInput.collectAsState()
     val selectedType by viewModel.selectedType.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
-    val accountBalances by viewModel.accountBalances.collectAsState()
     val selectedAccountId by viewModel.selectedAccountId.collectAsState()
     val selectedToAccountId by viewModel.selectedToAccountId.collectAsState()
     val categoryInput by viewModel.categoryInput.collectAsState()
@@ -93,8 +94,10 @@ fun ManualTransactionScreen(
     val saveState by viewModel.saveState.collectAsState()
     val isEditing by viewModel.isEditing.collectAsState()
     val categorySuggestions by viewModel.categorySuggestions.collectAsState()
+    val customCategories by viewModel.customCategories.collectAsState()
+    val isToAccountLocked by viewModel.isToAccountLocked.collectAsState()
 
-    var categoryDropdownExpanded by remember { mutableStateOf(false) }
+    var showCategoryBottomSheet by remember { mutableStateOf(false) }
     var isCalculatorVisible by remember { mutableStateOf(false) }
     var showInvalidMathDialog by remember { mutableStateOf(false) }
 
@@ -225,68 +228,103 @@ fun ManualTransactionScreen(
                 }
 
                 // Account Selection Card Grid (ref-account-selector-cards.png pattern)
-                CompactAccountSelector(
-                    label = if (selectedType == TransactionType.TRANSFER) "From Account" else "Account",
-                    selectedAccount = selectedAccount,
-                    accounts = accounts,
-                    balances = accountBalances,
-                    onAccountSelected = { viewModel.setAccountId(it.id) }
-                )
+                val isInstallment = selectedType == TransactionType.INSTALLMENT
+                val availableAccounts = when (selectedType) {
+                    TransactionType.INSTALLMENT -> accounts.filter { it.type == com.example.budgettracker.data.model.AccountType.LOAN || it.type == com.example.budgettracker.data.model.AccountType.BNPL }
+                    TransactionType.TRANSFER -> accounts.filter { it.id != selectedToAccountId }
+                    else -> accounts
+                }
 
-                if (selectedType == TransactionType.TRANSFER) {
+                if (isInstallment && availableAccounts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(ZincSoftCornerRadius))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(ZincSoftCornerRadius))
+                            .padding(14.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "No loan/BNPL accounts found. Create one first.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (onNavigateToAccounts != null) {
+                                TextButton(
+                                    onClick = onNavigateToAccounts,
+                                    colors = ButtonDefaults.textButtonColors(contentColor = AmberGlow)
+                                ) {
+                                    Text("Go to Accounts", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                } else {
                     CompactAccountSelector(
-                        label = "To Destination Account",
-                        selectedAccount = selectedToAccount,
-                        accounts = accounts.filter { it.id != selectedAccountId },
-                        balances = accountBalances,
-                        onAccountSelected = { viewModel.setToAccountId(it.id) }
+                        label = when (selectedType) {
+                            TransactionType.TRANSFER -> "From Account"
+                            TransactionType.INSTALLMENT -> "Select Account to Deduct"
+                            else -> "Account"
+                        },
+                        selectedAccount = selectedAccount,
+                        accounts = availableAccounts,
+                        onAccountSelected = { viewModel.setAccountId(it.id) }
                     )
                 }
 
-                // Category Dropdown
+                if (selectedType == TransactionType.TRANSFER) {
+                    if (isToAccountLocked && selectedToAccount != null) {
+                        CompactAccountSelector(
+                            label = "To Destination Account (Locked)",
+                            selectedAccount = selectedToAccount,
+                            accounts = listOf(selectedToAccount),
+                            onAccountSelected = { /* locked when paying bill */ }
+                        )
+                    } else {
+                        CompactAccountSelector(
+                            label = "To Destination Account",
+                            selectedAccount = selectedToAccount,
+                            accounts = accounts.filter { it.id != selectedAccountId },
+                            onAccountSelected = { viewModel.setToAccountId(it.id) }
+                        )
+                    }
+                }
+
+                // Category Picker
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Category", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCategoryBottomSheet = true }
+                    ) {
                         OutlinedTextField(
                             value = categoryInput,
-                            onValueChange = { viewModel.setCategory(it) },
-                            placeholder = { Text("Select or type category...", fontSize = 13.sp) },
+                            onValueChange = {},
+                            placeholder = { Text("Select category...", fontSize = 13.sp) },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
+                            readOnly = true,
+                            enabled = false,
                             trailingIcon = {
-                                TextButton(onClick = { categoryDropdownExpanded = true }) {
+                                TextButton(onClick = { showCategoryBottomSheet = true }) {
                                     Text("▼", fontSize = 10.sp)
                                 }
                             },
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         )
-
-                        DropdownMenu(
-                            expanded = categoryDropdownExpanded,
-                            onDismissRequest = { categoryDropdownExpanded = false }
-                        ) {
-                            val defaultCategories = listOf("Food & Dining", "Bills & Utilities", "Shopping", "Transport", "Entertainment", "Salary", "General")
-                            val suggestions = (categorySuggestions + defaultCategories).distinct()
-                            suggestions.forEach { cat ->
-                                DropdownMenuItem(
-                                    text = { Text(cat, fontSize = 13.sp) },
-                                    onClick = {
-                                        viewModel.setCategory(cat)
-                                        categoryDropdownExpanded = false
-                                    }
-                                )
-                            }
-                        }
                     }
                 }
 
-                // Title Input
+                // Name Input
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = if (selectedType == TransactionType.INSTALLMENT) "Purchase / Item Title" else "Title / Description",
+                        text = if (selectedType == TransactionType.INSTALLMENT) "Item Name" else "Name",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -294,7 +332,12 @@ fun ManualTransactionScreen(
                     OutlinedTextField(
                         value = titleInput,
                         onValueChange = { viewModel.setTitle(it) },
-                        placeholder = { Text("e.g. Jollibee, Meralco, iPhone 15", fontSize = 13.sp) },
+                        placeholder = {
+                            Text(
+                                text = if (selectedType == TransactionType.INSTALLMENT) "e.g. iPhone 15, Refrigerator" else "Enter transaction name",
+                                fontSize = 13.sp
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -322,11 +365,11 @@ fun ManualTransactionScreen(
                     }
                 }
 
-                // Note Input
+                // Remarks Input
                 OutlinedTextField(
                     value = noteInput,
                     onValueChange = { viewModel.setNote(it) },
-                    placeholder = { Text("Add optional note...", fontSize = 12.sp) },
+                    placeholder = { Text("Remarks (optional)", fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
@@ -441,6 +484,22 @@ fun ManualTransactionScreen(
     if (showInvalidMathDialog) {
         InvalidMathExpressionDialog(
             onDismiss = { showInvalidMathDialog = false }
+        )
+    }
+
+    if (showCategoryBottomSheet) {
+        CategorySelectionBottomSheet(
+            transactionType = selectedType,
+            selectedCategory = categoryInput,
+            customCategories = customCategories,
+            onCategorySelected = { cat ->
+                viewModel.setCategory(cat)
+                showCategoryBottomSheet = false
+            },
+            onAddCustomCategory = { name, iconName ->
+                viewModel.addCustomCategory(name, iconName)
+            },
+            onDismiss = { showCategoryBottomSheet = false }
         )
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -76,11 +77,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.Payment
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.R
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.BillAmountType
+import com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity
 import com.example.budgettracker.data.model.AccountType
@@ -94,7 +98,8 @@ import kotlin.math.abs
 enum class ModalCategory(val label: String, val icon: ImageVector) {
     SAVINGS("Savings", Icons.Outlined.AccountBalance),
     E_WALLET("E-Wallet", Icons.Outlined.PhoneAndroid),
-    LOAN_BNPL("Loan/BNPL", Icons.Outlined.CreditCard),
+    CREDIT("Credit", Icons.Outlined.CreditCard),
+    LOAN_BNPL("Loan/BNPL", Icons.Default.Payment),
     BILL("Bill", Icons.Outlined.Receipt),
     OTHER("Other", Icons.Default.MoreHoriz)
 }
@@ -117,6 +122,14 @@ private val PRESET_ITEMS = listOf(
     PresetItem("maya", "Maya", AccountType.E_WALLET, ModalCategory.E_WALLET),
     PresetItem("grabpay", "GrabPay", AccountType.E_WALLET, ModalCategory.E_WALLET),
     PresetItem("shopeepay", "ShopeePay", AccountType.E_WALLET, ModalCategory.E_WALLET),
+
+    // Credit
+    PresetItem("bdo_credit", "BDO Credit Card", AccountType.CREDIT, ModalCategory.CREDIT),
+    PresetItem("bpi_credit", "BPI Credit Card", AccountType.CREDIT, ModalCategory.CREDIT),
+    PresetItem("unionbank_credit", "UnionBank Credit Card", AccountType.CREDIT, ModalCategory.CREDIT),
+    PresetItem("metrobank_credit", "Metrobank Credit Card", AccountType.CREDIT, ModalCategory.CREDIT),
+    PresetItem("rcbc_credit", "RCBC Credit Card", AccountType.CREDIT, ModalCategory.CREDIT),
+    PresetItem("securitybank_credit", "Security Bank Credit Card", AccountType.CREDIT, ModalCategory.CREDIT),
 
     // Loan/BNPL
     PresetItem("spaylater", "SPayLater", AccountType.BNPL, ModalCategory.LOAN_BNPL),
@@ -142,7 +155,8 @@ data class PendingSaveData(
     val account: AccountEntity,
     val loanDetails: LoanAccountDetailsEntity?,
     val savingsDetails: SavingsAccountDetailsEntity?,
-    val billDetails: BillAccountDetailsEntity?
+    val billDetails: BillAccountDetailsEntity?,
+    val creditDetails: CreditAccountDetailsEntity?
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,12 +166,13 @@ fun AddEditAccountDialog(
     initialLoanDetails: LoanAccountDetailsEntity? = null,
     initialSavingsDetails: SavingsAccountDetailsEntity? = null,
     initialBillDetails: BillAccountDetailsEntity? = null,
+    initialCreditDetails: CreditAccountDetailsEntity? = null,
     currentBalance: Long? = null,
     onDismiss: () -> Unit,
     onSave: (AccountEntity, LoanAccountDetailsEntity?) -> Unit = { _, _ -> },
-    onSaveFull: (AccountEntity, LoanAccountDetailsEntity?, SavingsAccountDetailsEntity?, BillAccountDetailsEntity?) -> Unit = { acc, loan, _, _ -> onSave(acc, loan) },
+    onSaveFull: (AccountEntity, LoanAccountDetailsEntity?, SavingsAccountDetailsEntity?, BillAccountDetailsEntity?, CreditAccountDetailsEntity?) -> Unit = { acc, loan, _, _, _ -> onSave(acc, loan) },
     onSaveWithAdjustment: (AccountEntity, LoanAccountDetailsEntity?, Long, Boolean) -> Unit = { acc, loan, _, _ -> onSave(acc, loan) },
-    onSaveWithAdjustmentFull: (AccountEntity, LoanAccountDetailsEntity?, SavingsAccountDetailsEntity?, BillAccountDetailsEntity?, Long, Boolean) -> Unit = { acc, loan, _, _, bal, adj -> onSaveWithAdjustment(acc, loan, bal, adj) },
+    onSaveWithAdjustmentFull: (AccountEntity, LoanAccountDetailsEntity?, SavingsAccountDetailsEntity?, BillAccountDetailsEntity?, CreditAccountDetailsEntity?, Long, Boolean) -> Unit = { acc, loan, _, _, _, bal, adj -> onSaveWithAdjustment(acc, loan, bal, adj) },
     onSoftDelete: ((Long) -> Unit)? = null
 ) {
     var currentStep by remember {
@@ -169,6 +184,7 @@ fun AddEditAccountDialog(
             when (initialAccount?.type) {
                 AccountType.SAVINGS, AccountType.BANK -> ModalCategory.SAVINGS
                 AccountType.E_WALLET -> ModalCategory.E_WALLET
+                AccountType.CREDIT -> ModalCategory.CREDIT
                 AccountType.BNPL, AccountType.LOAN -> ModalCategory.LOAN_BNPL
                 AccountType.BILL -> ModalCategory.BILL
                 AccountType.CASH -> ModalCategory.OTHER
@@ -215,14 +231,12 @@ fun AddEditAccountDialog(
         )
     }
 
-    var dueDayInput by remember {
-        mutableStateOf(
-            initialBillDetails?.dueDay?.toString()
-                ?: initialLoanDetails?.cycleDay1?.toString()
-                ?: "15"
-        )
+    val initialDueDaysList = remember(initialLoanDetails, initialBillDetails) {
+        initialLoanDetails?.parseDueDays()
+            ?: initialBillDetails?.parseDueDays()
+            ?: listOf(15)
     }
-    var dueDay2Input by remember { mutableStateOf(initialLoanDetails?.cycleDay2?.toString() ?: "") }
+    var selectedDueDays by remember { mutableStateOf<List<Int>>(initialDueDaysList) }
     var amountDueInput by remember {
         mutableStateOf(
             initialBillDetails?.amountDue?.let { (it / 100).toString() }
@@ -234,6 +248,17 @@ fun AddEditAccountDialog(
         mutableStateOf(
             if (initialBillDetails?.amountType == BillAmountType.ESTIMATED) "Estimated" else "Fixed"
         )
+    }
+    var creditLimitInput by remember {
+        mutableStateOf(
+            initialCreditDetails?.creditLimit?.let { (it / 100).toString() }
+                ?: initialLoanDetails?.creditLimit?.let { (it / 100).toString() }
+                ?: ""
+        )
+    }
+
+    var creditStatementDueDay by remember {
+        mutableIntStateOf(initialCreditDetails?.statementDueDay ?: 15)
     }
 
     var expandedDueDayDropdown by remember { mutableStateOf(false) }
@@ -247,12 +272,12 @@ fun AddEditAccountDialog(
         val pending = pendingAccountSave!!
         BalanceAdjustmentConfirmDialog(
             onConfirmYes = {
-                onSaveWithAdjustmentFull(pending.account, pending.loanDetails, pending.savingsDetails, pending.billDetails, pendingTargetBalCentavos, true)
+                onSaveWithAdjustmentFull(pending.account, pending.loanDetails, pending.savingsDetails, pending.billDetails, pending.creditDetails, pendingTargetBalCentavos, true)
                 showAdjustmentPrompt = false
                 onDismiss()
             },
             onConfirmNo = {
-                onSaveWithAdjustmentFull(pending.account, pending.loanDetails, pending.savingsDetails, pending.billDetails, pendingTargetBalCentavos, false)
+                onSaveWithAdjustmentFull(pending.account, pending.loanDetails, pending.savingsDetails, pending.billDetails, pending.creditDetails, pendingTargetBalCentavos, false)
                 showAdjustmentPrompt = false
                 onDismiss()
             },
@@ -413,6 +438,7 @@ fun AddEditAccountDialog(
                                             selectedType = when (selectedCategory) {
                                                 ModalCategory.SAVINGS -> AccountType.SAVINGS
                                                 ModalCategory.E_WALLET -> AccountType.E_WALLET
+                                                ModalCategory.CREDIT -> AccountType.CREDIT
                                                 ModalCategory.LOAN_BNPL -> AccountType.BNPL
                                                 ModalCategory.BILL -> AccountType.BILL
                                                 ModalCategory.OTHER -> AccountType.CASH
@@ -446,6 +472,7 @@ fun AddEditAccountDialog(
                                             selectedType = when (selectedCategory) {
                                                 ModalCategory.SAVINGS -> AccountType.SAVINGS
                                                 ModalCategory.E_WALLET -> AccountType.E_WALLET
+                                                ModalCategory.CREDIT -> AccountType.CREDIT
                                                 ModalCategory.LOAN_BNPL -> AccountType.BNPL
                                                 ModalCategory.BILL -> AccountType.BILL
                                                 ModalCategory.OTHER -> AccountType.CASH
@@ -586,25 +613,56 @@ fun AddEditAccountDialog(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        // 2. Starting Balance Field
-                        OutlinedTextField(
-                            value = balanceInput,
-                            onValueChange = { balanceInput = CurrencyUtils.formatAmountInput(it) },
-                            label = { Text("Starting Balance *") },
-                            placeholder = { Text("0.00") },
-                            leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            trailingIcon = {
-                                if (balanceInput.isNotEmpty()) {
-                                    IconButton(onClick = { balanceInput = "" }) {
-                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                        // 2. Starting Balance Field (Hidden for Loan, BNPL, and Credit)
+                        val isLoanBnplOrCredit = selectedCategory == ModalCategory.LOAN_BNPL || selectedCategory == ModalCategory.CREDIT
+                        if (!isLoanBnplOrCredit) {
+                            OutlinedTextField(
+                                value = balanceInput,
+                                onValueChange = { balanceInput = CurrencyUtils.formatAmountInput(it) },
+                                label = { Text("Starting Balance *") },
+                                placeholder = { Text("0.00") },
+                                leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                trailingIcon = {
+                                    if (balanceInput.isNotEmpty()) {
+                                        IconButton(onClick = { balanceInput = "" }) {
+                                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                        }
                                     }
-                                }
-                            },
-                            shape = RoundedCornerShape(ZincCornerRadius),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                                },
+                                shape = RoundedCornerShape(ZincCornerRadius),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // Credit Card Details
+                        if (selectedCategory == ModalCategory.CREDIT) {
+                            OutlinedTextField(
+                                value = creditLimitInput,
+                                onValueChange = { creditLimitInput = CurrencyUtils.formatAmountInput(it) },
+                                label = { Text("Credit Limit *") },
+                                placeholder = { Text("e.g. 50,000.00") },
+                                leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                trailingIcon = {
+                                    if (creditLimitInput.isNotEmpty()) {
+                                        IconButton(onClick = { creditLimitInput = "" }) {
+                                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(ZincCornerRadius),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            SingleDayPicker(
+                                selectedDay = creditStatementDueDay,
+                                onDaySelected = { creditStatementDueDay = it },
+                                label = "Statement Due Day *"
+                            )
+                        }
 
                         // Accordion 1: Savings Details (Fix #1: Collapsed by default)
                         if (selectedCategory == ModalCategory.SAVINGS) {
@@ -642,7 +700,7 @@ fun AddEditAccountDialog(
                             }
                         }
 
-                        // Accordion 2: Bill Details (Fix #1: EXPANDED by default)
+                        // Accordion 2: Bill Details (EXPANDED by default)
                         if (selectedCategory == ModalCategory.BILL) {
                             AccordionCard(
                                 title = "Bill Details",
@@ -651,58 +709,21 @@ fun AddEditAccountDialog(
                                 onToggle = { isBillDetailsExpanded = !isBillDetailsExpanded }
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        // Due Day Dropdown
-                                        Box(modifier = Modifier.weight(1f)) {
-                                            OutlinedTextField(
-                                                value = dueDayInput,
-                                                onValueChange = {},
-                                                readOnly = true,
-                                                label = { Text("Due Day *") },
-                                                trailingIcon = {
-                                                    Icon(
-                                                        imageVector = Icons.Default.ExpandMore,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.clickable { expandedDueDayDropdown = true }
-                                                    )
-                                                },
-                                                shape = RoundedCornerShape(ZincCornerRadius),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable { expandedDueDayDropdown = true }
-                                            )
+                                    DueDaysChipPicker(
+                                        selectedDays = selectedDueDays,
+                                        onDaysChanged = { selectedDueDays = it }
+                                    )
 
-                                            DropdownMenu(
-                                                expanded = expandedDueDayDropdown,
-                                                onDismissRequest = { expandedDueDayDropdown = false }
-                                            ) {
-                                                (1..31).forEach { day ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(day.toString()) },
-                                                        onClick = {
-                                                            dueDayInput = day.toString()
-                                                            expandedDueDayDropdown = false
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        // Amount Due Field
-                                        OutlinedTextField(
-                                            value = amountDueInput,
-                                            onValueChange = { amountDueInput = it },
-                                            label = { Text("Amount Due (optional)") },
-                                            placeholder = { Text("2,500.00") },
-                                            leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(ZincCornerRadius),
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
+                                    OutlinedTextField(
+                                        value = amountDueInput,
+                                        onValueChange = { amountDueInput = it },
+                                        label = { Text("Typical / Expected Amount Due (₱)") },
+                                        placeholder = { Text("0.00") },
+                                        leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(ZincCornerRadius),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
 
                                     // Amount Type Segmented Control
                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -763,28 +784,27 @@ fun AddEditAccountDialog(
                                 onToggle = { isLoanDetailsExpanded = !isLoanDetailsExpanded }
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        OutlinedTextField(
-                                            value = dueDayInput,
-                                            onValueChange = { dueDayInput = it },
-                                            label = { Text("Due Day 1 *") },
-                                            placeholder = { Text("15") },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(ZincCornerRadius),
-                                            modifier = Modifier.weight(1f)
-                                        )
+                                    DueDaysChipPicker(
+                                        selectedDays = selectedDueDays,
+                                        onDaysChanged = { selectedDueDays = it }
+                                    )
 
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         OutlinedTextField(
-                                            value = dueDay2Input,
-                                            onValueChange = { dueDay2Input = it },
-                                            label = { Text("Due Day 2 (Opt)") },
-                                            placeholder = { Text("30") },
+                                            value = creditLimitInput,
+                                            onValueChange = { creditLimitInput = it },
+                                            label = { Text("Credit Limit (optional)") },
+                                            placeholder = { Text("0.00") },
+                                            leadingIcon = { Text("₱", fontWeight = FontWeight.Bold) },
                                             singleLine = true,
                                             shape = RoundedCornerShape(ZincCornerRadius),
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Text(
+                                            text = "Setting a credit limit helps track your available credit",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(start = 4.dp, top = 2.dp)
                                         )
                                     }
 
@@ -830,29 +850,39 @@ fun AddEditAccountDialog(
 
                         Button(
                             onClick = {
+                                if (selectedCategory == ModalCategory.CREDIT) {
+                                    if (creditLimitInput.isBlank() || CurrencyUtils.parseInputToCentavos(creditLimitInput) <= 0L) {
+                                        Toast.makeText(context, "Please enter your credit limit", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                }
+
                                 val finalName = name.trim().ifBlank { selectedPreset?.name ?: "Custom Account" }
-                                val targetBalCentavos = CurrencyUtils.parseInputToCentavos(balanceInput)
+                                val finalType = if (selectedCategory == ModalCategory.CREDIT) AccountType.CREDIT else selectedType
+                                val isDebtAccount = finalType == AccountType.LOAN || finalType == AccountType.BNPL || finalType == AccountType.CREDIT || selectedCategory == ModalCategory.LOAN_BNPL || selectedCategory == ModalCategory.CREDIT
+
+                                val rawBalCentavos = if (isDebtAccount) 0L else CurrencyUtils.parseInputToCentavos(balanceInput)
+                                val targetBalCentavos = if (isDebtAccount) 0L else rawBalCentavos
 
                                 val account = AccountEntity(
                                     id = initialAccount?.id ?: 0L,
                                     name = finalName,
-                                    type = selectedType,
+                                    type = finalType,
                                     presetId = selectedPresetId.ifEmpty { selectedPreset?.id },
-                                    initialBalance = if (initialAccount == null) targetBalCentavos else initialAccount.initialBalance,
+                                    initialBalance = if (isDebtAccount) 0L else if (initialAccount == null) targetBalCentavos else initialAccount.initialBalance,
                                     displayOrder = initialAccount?.displayOrder ?: 0
                                 )
 
-                                val d1 = dueDayInput.toIntOrNull() ?: 15
-                                val d2 = dueDay2Input.toIntOrNull()
+                                val dueDaysStr = selectedDueDays.sorted().joinToString(",").ifBlank { "15" }
                                 val minDue = CurrencyUtils.parseInputToCentavos(amountDueInput)
 
                                 val loanDetails = if (selectedCategory == ModalCategory.LOAN_BNPL) {
                                     LoanAccountDetailsEntity(
                                         accountId = initialAccount?.id ?: 0L,
-                                        cycleDay1 = d1,
-                                        cycleDay2 = d2,
+                                        creditLimit = if (creditLimitInput.isNotBlank()) CurrencyUtils.parseInputToCentavos(creditLimitInput) else null,
+                                        dueDays = dueDaysStr,
                                         minimumAmountDue = minDue,
-                                        totalRemainingBalance = targetBalCentavos,
+                                        totalRemainingBalance = if (initialAccount == null) 0L else (initialLoanDetails?.totalRemainingBalance ?: 0L),
                                         reminderEnabled = true,
                                         reminderDaysBefore = 7
                                     )
@@ -869,18 +899,26 @@ fun AddEditAccountDialog(
                                 val billDetails = if (selectedCategory == ModalCategory.BILL) {
                                     BillAccountDetailsEntity(
                                         accountId = initialAccount?.id ?: 0L,
-                                        dueDay = d1,
+                                        dueDays = dueDaysStr,
                                         amountDue = if (amountDueInput.isNotBlank()) CurrencyUtils.parseInputToCentavos(amountDueInput) else null,
                                         amountType = if (billAmountType == "Estimated") BillAmountType.ESTIMATED else BillAmountType.FIXED
                                     )
                                 } else null
 
-                                if (initialAccount != null && currentBalance != null && targetBalCentavos != currentBalance) {
-                                    pendingAccountSave = PendingSaveData(account, loanDetails, savingsDetails, billDetails)
+                                val creditDetails = if (selectedCategory == ModalCategory.CREDIT) {
+                                    CreditAccountDetailsEntity(
+                                        accountId = initialAccount?.id ?: 0L,
+                                        creditLimit = CurrencyUtils.parseInputToCentavos(creditLimitInput),
+                                        statementDueDay = creditStatementDueDay.coerceIn(1, 31)
+                                    )
+                                } else null
+
+                                if (!isDebtAccount && initialAccount != null && currentBalance != null && targetBalCentavos != currentBalance) {
+                                    pendingAccountSave = PendingSaveData(account, loanDetails, savingsDetails, billDetails, creditDetails)
                                     pendingTargetBalCentavos = targetBalCentavos
                                     showAdjustmentPrompt = true
                                 } else {
-                                    onSaveWithAdjustmentFull(account, loanDetails, savingsDetails, billDetails, targetBalCentavos, false)
+                                    onSaveWithAdjustmentFull(account, loanDetails, savingsDetails, billDetails, creditDetails, targetBalCentavos, false)
                                     onDismiss()
                                 }
                             },
@@ -1095,3 +1133,202 @@ private fun AccordionCard(
         }
     }
 }
+
+@Composable
+fun DueDaysChipPicker(
+    selectedDays: List<Int>,
+    onDaysChanged: (List<Int>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showAddDropdown by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Due Day(s) of Month *",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Box {
+                OutlinedButton(
+                    onClick = { showAddDropdown = true },
+                    shape = RoundedCornerShape(ZincSoftCornerRadius),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add Day", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                DropdownMenu(
+                    expanded = showAddDropdown,
+                    onDismissRequest = { showAddDropdown = false }
+                ) {
+                    val availableDays = (1..31).filter { it !in selectedDays }
+                    if (availableDays.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("All days selected") },
+                            onClick = { showAddDropdown = false }
+                        )
+                    } else {
+                        availableDays.forEach { day ->
+                            DropdownMenuItem(
+                                text = { Text("Day $day") },
+                                onClick = {
+                                    onDaysChanged((selectedDays + day).sorted())
+                                    showAddDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Selected Days Row
+        if (selectedDays.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                selectedDays.forEach { day ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Day $day",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            if (selectedDays.size > 1) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove day",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clickable {
+                                            onDaysChanged(selectedDays.filter { it != day })
+                                        }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Quick Presets Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            val presets = listOf(
+                "15th" to listOf(15),
+                "30th" to listOf(30),
+                "15th & 30th" to listOf(15, 30),
+                "1st & 15th" to listOf(1, 15)
+            )
+            presets.forEach { (label, days) ->
+                val isSelected = selectedDays == days
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onDaysChanged(days) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SingleDayPicker(
+    selectedDay: Int,
+    onDaySelected: (Int) -> Unit,
+    label: String = "Statement Due Day *",
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Box {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(ZincCornerRadius))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(ZincCornerRadius))
+                    .clickable { expanded = true }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Day $selectedDay of each month",
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = "Pick Due Day",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.height(240.dp)
+            ) {
+                (1..31).forEach { day ->
+                    DropdownMenuItem(
+                        text = { Text("Day $day") },
+                        onClick = {
+                            onDaySelected(day)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+

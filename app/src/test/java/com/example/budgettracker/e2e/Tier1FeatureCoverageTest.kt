@@ -295,8 +295,7 @@ class Tier1FeatureCoverageTest {
 
         val details = harness.getLoanDetails(loanAccId)
         assertNotNull(details)
-        assertEquals(15, details!!.cycleDay1)
-        assertEquals(30, details.cycleDay2)
+        assertEquals(listOf(15, 30), details!!.parseDueDays())
         assertEquals(150_000L, details.minimumAmountDue)
         assertEquals(1_200_000L, details.totalRemainingBalance)
         assertEquals(7, details.reminderDaysBefore)
@@ -449,7 +448,7 @@ class Tier1FeatureCoverageTest {
             testHarness.importJsonSnapshot(json)
             val restoredLoan = testHarness.getLoanDetails(aId)
             assertNotNull(restoredLoan)
-            assertEquals(15, restoredLoan!!.cycleDay1)
+            assertEquals(listOf(15), restoredLoan!!.parseDueDays())
             assertEquals(10_000L, restoredLoan.minimumAmountDue)
         } finally {
             testHarness.close()

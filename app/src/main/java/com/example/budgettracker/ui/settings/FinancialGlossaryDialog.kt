@@ -2,6 +2,7 @@ package com.example.budgettracker.ui.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Savings
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Timeline
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,9 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+
 
 data class GlossaryItem(
     val title: String,
@@ -121,7 +125,17 @@ fun FinancialGlossaryDialog(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                BottomSheetDefaults.DragHandle()
+            }
+        }
     ) {
         Column(
             modifier = Modifier
@@ -154,10 +168,11 @@ fun FinancialGlossaryDialog(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            val scrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items.forEach { item ->

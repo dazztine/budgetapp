@@ -10,8 +10,17 @@ data class ParsedAccountSetup(
     var initialBalanceCentavos: Long = 0L,
     var cycleDay1: Int? = null,
     var cycleDay2: Int? = null,
+    var dueDays: String = "15",
     val validationErrors: MutableList<String> = mutableListOf()
-)
+) {
+    fun resolveDueDays(): String {
+        return if (cycleDay1 != null) {
+            if (cycleDay2 != null) "$cycleDay1,$cycleDay2" else "$cycleDay1"
+        } else {
+            dueDays
+        }
+    }
+}
 
 data class BatchParseResult(
     val accounts: List<ParsedAccountSetup>,

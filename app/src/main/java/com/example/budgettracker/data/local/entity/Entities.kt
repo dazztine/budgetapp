@@ -43,13 +43,21 @@ data class AccountEntity(
 data class LoanAccountDetailsEntity(
     @PrimaryKey
     val accountId: Long,
-    val cycleDay1: Int,
-    val cycleDay2: Int? = null,
+    val dueDays: String,
     val minimumAmountDue: Long = 0L,
     val totalRemainingBalance: Long = 0L,
     val reminderEnabled: Boolean = true,
-    val reminderDaysBefore: Int = 3
-)
+    val reminderDaysBefore: Int = 3,
+    val creditLimit: Long? = null
+) {
+    fun parseDueDays(): List<Int> =
+        dueDays.split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it in 1..31 }
+            .distinct()
+            .sorted()
+            .ifEmpty { listOf(15) }
+}
 
 enum class BillAmountType {
     FIXED,
@@ -90,9 +98,37 @@ data class SavingsAccountDetailsEntity(
 data class BillAccountDetailsEntity(
     @PrimaryKey
     val accountId: Long,
-    val dueDay: Int,
+    val dueDays: String,
     val amountDue: Long? = null,
     val amountType: BillAmountType = BillAmountType.FIXED,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    fun parseDueDays(): List<Int> =
+        dueDays.split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it in 1..31 }
+            .distinct()
+            .sorted()
+            .ifEmpty { listOf(1) }
+}
+
+@Entity(
+    tableName = "credit_account_details",
+    foreignKeys = [
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ]
+)
+data class CreditAccountDetailsEntity(
+    @PrimaryKey
+    val accountId: Long,
+    val creditLimit: Long,
+    val statementDueDay: Int,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -204,4 +240,86 @@ data class AccountWithBillDetails(
         entityColumn = "accountId"
     )
     val billDetails: BillAccountDetailsEntity?
+)
+
+data class AccountWithCreditDetails(
+    @Embedded
+    val account: AccountEntity,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "accountId"
+    )
+    val creditDetails: CreditAccountDetailsEntity?
+)
+
+@Entity(
+    tableName = "loan_billing_cycles",
+    foreignKeys = [
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["accountId"]),
+        Index(value = ["accountId", "isPaid"])
+    ]
+)
+data class LoanBillingCycleEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val accountId: Long,
+    val cycleDueDate: Long,
+    val amountDue: Long,
+    val isPaid: Boolean = false,
+    val paidDate: Long? = null,
+    val paidAmount: Long? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val isManualOverride: Boolean = false
+)
+
+@Entity(
+    tableName = "recurring_bills",
+    foreignKeys = [
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.SET_NULL
+        )
+    ],
+    indices = [
+        Index(value = ["accountId"]),
+        Index(value = ["isActive"])
+    ]
+)
+data class RecurringBillEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val name: String,
+    val amount: Long,
+    val dueDay: Int,
+    val accountId: Long? = null,
+    val category: String = "Bills",
+    val isAutoPay: Boolean = false,
+    val isActive: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "custom_categories",
+    indices = [
+        Index(value = ["transactionType"])
+    ]
+)
+data class CustomCategoryEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val name: String,
+    val transactionType: TransactionType,
+    val iconName: String,
+    val createdAt: Long = System.currentTimeMillis()
 )

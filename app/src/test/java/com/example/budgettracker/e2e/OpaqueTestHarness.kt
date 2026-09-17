@@ -194,11 +194,11 @@ class OpaqueTestHarness : Closeable {
         totalRemainingCentavos: Long = 0L,
         reminderDaysBefore: Int = 7
     ) = runBlocking {
+        val dueDaysStr = listOfNotNull(cycleDay1, cycleDay2).joinToString(",")
         loanDetailsDao.insert(
             LoanAccountDetailsEntity(
                 accountId = accountId,
-                cycleDay1 = cycleDay1,
-                cycleDay2 = cycleDay2,
+                dueDays = dueDaysStr,
                 minimumAmountDue = minimumDueCentavos,
                 totalRemainingBalance = totalRemainingCentavos,
                 reminderDaysBefore = reminderDaysBefore
@@ -305,8 +305,7 @@ class OpaqueTestHarness : Closeable {
             val loan = loanDetailsDao.getByAccountId(a.id)
             if (loan != null) {
                 val lObj = JSONObject()
-                lObj.put("cycleDay1", loan.cycleDay1)
-                lObj.put("cycleDay2", loan.cycleDay2 ?: JSONObject.NULL)
+                lObj.put("dueDays", loan.dueDays)
                 lObj.put("minimumAmountDue", loan.minimumAmountDue)
                 lObj.put("totalRemainingBalance", loan.totalRemainingBalance)
                 lObj.put("reminderDaysBefore", loan.reminderDaysBefore)
@@ -360,10 +359,16 @@ class OpaqueTestHarness : Closeable {
 
             if (aObj.has("loanDetails") && !aObj.isNull("loanDetails")) {
                 val lObj = aObj.getJSONObject("loanDetails")
+                val dueDaysStr = if (lObj.has("dueDays")) {
+                    lObj.getString("dueDays")
+                } else {
+                    val d1 = lObj.optInt("cycleDay1", 1)
+                    val d2 = if (lObj.isNull("cycleDay2")) null else lObj.optInt("cycleDay2")
+                    listOfNotNull(d1, d2).joinToString(",")
+                }
                 val loan = LoanAccountDetailsEntity(
                     accountId = acc.id,
-                    cycleDay1 = lObj.getInt("cycleDay1"),
-                    cycleDay2 = if (lObj.isNull("cycleDay2")) null else lObj.getInt("cycleDay2"),
+                    dueDays = dueDaysStr,
                     minimumAmountDue = lObj.getLong("minimumAmountDue"),
                     totalRemainingBalance = lObj.getLong("totalRemainingBalance"),
                     reminderDaysBefore = lObj.getInt("reminderDaysBefore")

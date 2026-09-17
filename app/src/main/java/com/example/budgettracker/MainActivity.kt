@@ -34,7 +34,11 @@ class MainActivity : ComponentActivity() {
             loanDetailsDao = db.loanDetailsDao(),
             installmentPlanDao = db.installmentPlanDao(),
             savingsDetailsDao = db.savingsDetailsDao(),
-            billDetailsDao = db.billDetailsDao()
+            billDetailsDao = db.billDetailsDao(),
+            loanBillingCycleDao = db.loanBillingCycleDao(),
+            customCategoryDao = db.customCategoryDao(),
+            recurringBillDao = db.recurringBillDao(),
+            creditDetailsDao = db.creditDetailsDao()
         )
 
         val dashboardViewModel = DashboardViewModel(repository, appPreferences = appPreferences)

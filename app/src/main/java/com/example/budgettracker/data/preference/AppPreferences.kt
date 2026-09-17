@@ -24,7 +24,25 @@ class AppPreferences(context: Context) {
         _isBalanceVisible.value = visible
     }
 
+    private val _upcomingBillsViewMode = MutableStateFlow(loadUpcomingBillsViewMode())
+    val upcomingBillsViewMode: StateFlow<String> = _upcomingBillsViewMode.asStateFlow()
+
+    private fun loadUpcomingBillsViewMode(): String {
+        return prefs.getString(KEY_UPCOMING_BILLS_VIEW_MODE, "VERTICAL") ?: "VERTICAL"
+    }
+
+    fun toggleUpcomingBillsViewMode() {
+        val newMode = if (_upcomingBillsViewMode.value == "VERTICAL") "HORIZONTAL" else "VERTICAL"
+        setUpcomingBillsViewMode(newMode)
+    }
+
+    fun setUpcomingBillsViewMode(mode: String) {
+        prefs.edit().putString(KEY_UPCOMING_BILLS_VIEW_MODE, mode).apply()
+        _upcomingBillsViewMode.value = mode
+    }
+
     companion object {
         private const val KEY_IS_BALANCE_VISIBLE = "is_balance_visible"
+        private const val KEY_UPCOMING_BILLS_VIEW_MODE = "upcoming_bills_view_mode"
     }
 }

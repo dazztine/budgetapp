@@ -68,6 +68,38 @@ fun AppNavigation(
         showTransactionModal = true
     }
 
+    val onPayBill: (Long, Long, Long?) -> Unit = { accountId, amountCentavos, cycleId ->
+        transactionViewModel.prepareForTransfer(
+            toAccountId = accountId,
+            amountCentavos = amountCentavos,
+            onConfirmedWithAmount = { actualAmount ->
+                dashboardViewModel.recordCyclePayment(accountId, cycleId, actualAmount) { result ->
+                    when (result) {
+                        is com.example.budgettracker.data.repository.CyclePaymentResult.Partial -> {
+                            val paidStr = com.example.budgettracker.util.CurrencyUtils.formatCentavosToPesos(result.amountPaid)
+                            val remainingStr = com.example.budgettracker.util.CurrencyUtils.formatCentavosToPesos(result.remainingDue)
+                            val dateStr = java.time.Instant.ofEpochMilli(result.dueDate)
+                                .atZone(java.time.ZoneId.systemDefault())
+                                .toLocalDate()
+                                .toString()
+                            Toast.makeText(context, "$paidStr paid — $remainingStr still due on $dateStr", Toast.LENGTH_LONG).show()
+                        }
+                        is com.example.budgettracker.data.repository.CyclePaymentResult.PaidInFull -> {
+                            Toast.makeText(context, "Statement paid in full!", Toast.LENGTH_SHORT).show()
+                        }
+                        is com.example.budgettracker.data.repository.CyclePaymentResult.NotFound -> {}
+                    }
+                }
+            }
+        )
+        showTransactionModal = true
+    }
+
+    val onLogTransactionForAccount: (Long) -> Unit = { accountId ->
+        transactionViewModel.prepareForNewTransaction(accountId = accountId)
+        showTransactionModal = true
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         if (isHistoryVisible) {
             TransactionHistoryScreen(
@@ -96,7 +128,9 @@ fun AppNavigation(
                                 },
                                 onNavigateToAccounts = { currentTab = BottomTab.ACCOUNTS },
                                 onNavigateToHistory = { isHistoryVisible = true },
-                                onEditTransaction = onEditTransaction
+                                onEditTransaction = onEditTransaction,
+                                onPayBill = onPayBill,
+                                onLogTransactionForAccount = onLogTransactionForAccount
                             )
                         }
 
@@ -110,7 +144,9 @@ fun AppNavigation(
                         BottomTab.ACCOUNTS -> {
                             AccountsScreen(
                                 viewModel = dashboardViewModel,
-                                onEditTransaction = onEditTransaction
+                                onEditTransaction = onEditTransaction,
+                                onPayBill = onPayBill,
+                                onLogTransactionForAccount = onLogTransactionForAccount
                             )
                         }
 
@@ -142,6 +178,11 @@ fun AppNavigation(
                 onNavigateBack = {
                     showTransactionModal = false
                     transactionViewModel.resetFormForNextEntry()
+                },
+                onNavigateToAccounts = {
+                    showTransactionModal = false
+                    transactionViewModel.resetFormForNextEntry()
+                    currentTab = BottomTab.ACCOUNTS
                 }
             )
         }

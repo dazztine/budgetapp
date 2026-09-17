@@ -6,6 +6,7 @@ import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
+import com.example.budgettracker.data.model.AccountType
 import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.parser.BatchAccountSetupParser
@@ -129,6 +130,7 @@ class QuickParseViewModel(
         loanDetails: LoanAccountDetailsEntity? = null,
         savingsDetails: com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity? = null,
         billDetails: com.example.budgettracker.data.local.entity.BillAccountDetailsEntity? = null,
+        creditDetails: com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity? = null,
         onCreated: (Long) -> Unit = {}
     ) {
         if (activeAccounts.value.size >= 10) {
@@ -145,6 +147,12 @@ class QuickParseViewModel(
             }
             if (billDetails != null) {
                 repository.insertBillDetails(billDetails.copy(accountId = id))
+            }
+            if (creditDetails != null) {
+                repository.insertCreditDetails(creditDetails.copy(accountId = id))
+            }
+            if (account.type == AccountType.CREDIT || account.type == AccountType.LOAN || account.type == AccountType.BNPL || account.type == AccountType.BILL) {
+                repository.ensurePendingCyclesForAccount(id)
             }
             onCreated(id)
         }
@@ -175,11 +183,10 @@ class QuickParseViewModel(
                     val newAccountId = repository.insertAccount(accountEntity)
 
                     val day1 = acc.cycleDay1
-                    if (day1 != null) {
+                    if (day1 != null || acc.dueDays.isNotBlank()) {
                         val loanDetails = LoanAccountDetailsEntity(
                             accountId = newAccountId,
-                            cycleDay1 = day1,
-                            cycleDay2 = acc.cycleDay2,
+                            dueDays = acc.resolveDueDays(),
                             minimumAmountDue = 0L,
                             totalRemainingBalance = acc.initialBalanceCentavos
                         )

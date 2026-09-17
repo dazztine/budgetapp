@@ -3,6 +3,7 @@ package com.example.budgettracker.data.backup
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.BillAmountType
+import com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.LoanAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity
@@ -20,11 +21,12 @@ data class BackupData(
     val loanDetails: List<LoanAccountDetailsEntity>,
     val savingsDetails: List<SavingsAccountDetailsEntity> = emptyList(),
     val billDetails: List<BillAccountDetailsEntity> = emptyList(),
+    val creditDetails: List<CreditAccountDetailsEntity> = emptyList(),
     val installmentPlans: List<InstallmentPlanEntity> = emptyList(),
     val transactions: List<TransactionEntity>
 ) {
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 4
+        const val CURRENT_SCHEMA_VERSION = 5
     }
 }
 
@@ -34,6 +36,7 @@ sealed class RestoreResult {
         val loanDetailsCount: Int,
         val savingsDetailsCount: Int = 0,
         val billDetailsCount: Int = 0,
+        val creditDetailsCount: Int = 0,
         val installmentPlansCount: Int,
         val transactionsCount: Int
     ) : RestoreResult()
@@ -49,7 +52,8 @@ object BackupManager {
         installmentPlans: List<InstallmentPlanEntity>,
         transactions: List<TransactionEntity>,
         savingsDetails: List<SavingsAccountDetailsEntity> = emptyList(),
-        billDetails: List<BillAccountDetailsEntity> = emptyList()
+        billDetails: List<BillAccountDetailsEntity> = emptyList(),
+        creditDetails: List<CreditAccountDetailsEntity> = emptyList()
     ): String {
         val rootJson = JSONObject()
         rootJson.put("version", BackupData.CURRENT_SCHEMA_VERSION)
@@ -76,12 +80,12 @@ object BackupManager {
         loanDetails.forEach { ld ->
             val obj = JSONObject()
             obj.put("accountId", ld.accountId)
-            obj.put("cycleDay1", ld.cycleDay1)
-            obj.put("cycleDay2", ld.cycleDay2 ?: JSONObject.NULL)
+            obj.put("dueDays", ld.dueDays)
             obj.put("minimumAmountDue", ld.minimumAmountDue)
             obj.put("totalRemainingBalance", ld.totalRemainingBalance)
             obj.put("reminderEnabled", ld.reminderEnabled)
             obj.put("reminderDaysBefore", ld.reminderDaysBefore)
+            obj.put("creditLimit", ld.creditLimit ?: JSONObject.NULL)
             loanDetailsArray.put(obj)
         }
         rootJson.put("loanDetails", loanDetailsArray)
@@ -102,7 +106,7 @@ object BackupManager {
         billDetails.forEach { bd ->
             val obj = JSONObject()
             obj.put("accountId", bd.accountId)
-            obj.put("dueDay", bd.dueDay)
+            obj.put("dueDays", bd.dueDays)
             obj.put("amountDue", bd.amountDue ?: JSONObject.NULL)
             obj.put("amountType", bd.amountType.name)
             obj.put("createdAt", bd.createdAt)
@@ -110,6 +114,18 @@ object BackupManager {
             billDetailsArray.put(obj)
         }
         rootJson.put("billDetails", billDetailsArray)
+
+        val creditDetailsArray = JSONArray()
+        creditDetails.forEach { cd ->
+            val obj = JSONObject()
+            obj.put("accountId", cd.accountId)
+            obj.put("creditLimit", cd.creditLimit)
+            obj.put("statementDueDay", cd.statementDueDay)
+            obj.put("createdAt", cd.createdAt)
+            obj.put("updatedAt", cd.updatedAt)
+            creditDetailsArray.put(obj)
+        }
+        rootJson.put("creditDetails", creditDetailsArray)
 
         val installmentPlansArray = JSONArray()
         installmentPlans.forEach { ip ->
@@ -195,15 +211,22 @@ object BackupManager {
         val loanDetailsArray = rootJson.optJSONArray("loanDetails") ?: JSONArray()
         for (i in 0 until loanDetailsArray.length()) {
             val obj = loanDetailsArray.getJSONObject(i)
+            val dueDays = if (obj.has("dueDays")) {
+                obj.getString("dueDays")
+            } else {
+                val day1 = obj.optInt("cycleDay1", 15)
+                val day2 = if (obj.isNull("cycleDay2")) null else obj.optInt("cycleDay2")
+                if (day2 != null) "$day1,$day2" else "$day1"
+            }
             loanDetails.add(
                 LoanAccountDetailsEntity(
                     accountId = obj.getLong("accountId"),
-                    cycleDay1 = obj.getInt("cycleDay1"),
-                    cycleDay2 = if (obj.isNull("cycleDay2")) null else obj.getInt("cycleDay2"),
+                    dueDays = dueDays,
                     minimumAmountDue = obj.optLong("minimumAmountDue", 0L),
                     totalRemainingBalance = obj.optLong("totalRemainingBalance", 0L),
                     reminderEnabled = obj.optBoolean("reminderEnabled", true),
-                    reminderDaysBefore = obj.optInt("reminderDaysBefore", 3)
+                    reminderDaysBefore = obj.optInt("reminderDaysBefore", 3),
+                    creditLimit = if (obj.isNull("creditLimit")) null else obj.optLong("creditLimit")
                 )
             )
         }
@@ -229,12 +252,33 @@ object BackupManager {
         val billDetailsArray = rootJson.optJSONArray("billDetails") ?: JSONArray()
         for (i in 0 until billDetailsArray.length()) {
             val obj = billDetailsArray.getJSONObject(i)
+            val dueDays = if (obj.has("dueDays")) {
+                obj.getString("dueDays")
+            } else {
+                obj.optInt("dueDay", 1).toString()
+            }
             billDetails.add(
                 BillAccountDetailsEntity(
                     accountId = obj.getLong("accountId"),
-                    dueDay = obj.getInt("dueDay"),
+                    dueDays = dueDays,
                     amountDue = if (obj.isNull("amountDue")) null else obj.getLong("amountDue"),
                     amountType = if (obj.has("amountType")) BillAmountType.valueOf(obj.getString("amountType")) else BillAmountType.FIXED,
+                    createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                    updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                )
+            )
+        }
+
+        // Credit Details
+        val creditDetails = mutableListOf<CreditAccountDetailsEntity>()
+        val creditDetailsArray = rootJson.optJSONArray("creditDetails") ?: JSONArray()
+        for (i in 0 until creditDetailsArray.length()) {
+            val obj = creditDetailsArray.getJSONObject(i)
+            creditDetails.add(
+                CreditAccountDetailsEntity(
+                    accountId = obj.getLong("accountId"),
+                    creditLimit = obj.getLong("creditLimit"),
+                    statementDueDay = obj.getInt("statementDueDay"),
                     createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                     updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
                 )
@@ -304,6 +348,7 @@ object BackupManager {
             loanDetails = loanDetails,
             savingsDetails = savingsDetails,
             billDetails = billDetails,
+            creditDetails = creditDetails,
             installmentPlans = installmentPlans,
             transactions = transactions
         )
@@ -327,6 +372,9 @@ object BackupManager {
             if (backupData.billDetails.isNotEmpty()) {
                 repository.insertBillDetailsList(backupData.billDetails)
             }
+            if (backupData.creditDetails.isNotEmpty()) {
+                repository.insertCreditDetailsList(backupData.creditDetails)
+            }
             if (backupData.installmentPlans.isNotEmpty()) {
                 repository.insertInstallmentPlans(backupData.installmentPlans)
             }
@@ -339,6 +387,7 @@ object BackupManager {
                 loanDetailsCount = backupData.loanDetails.size,
                 savingsDetailsCount = backupData.savingsDetails.size,
                 billDetailsCount = backupData.billDetails.size,
+                creditDetailsCount = backupData.creditDetails.size,
                 installmentPlansCount = backupData.installmentPlans.size,
                 transactionsCount = backupData.transactions.size
             )

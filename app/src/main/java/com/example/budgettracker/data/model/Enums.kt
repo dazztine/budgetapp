@@ -8,7 +8,8 @@ enum class AccountType {
     LOAN,
     BNPL,
     BILL,
-    ASSET;
+    ASSET,
+    CREDIT;
 
     fun toDisplayLabel(): String = when (this) {
         E_WALLET -> "EWALLET"
@@ -19,6 +20,7 @@ enum class AccountType {
         LOAN -> "Loan"
         BILL -> "Bill"
         ASSET -> "Asset"
+        CREDIT -> "Credit"
     }
 }
 

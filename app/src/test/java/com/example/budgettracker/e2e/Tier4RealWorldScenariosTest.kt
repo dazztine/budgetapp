@@ -86,8 +86,7 @@ class Tier4RealWorldScenariosTest {
         // 6. Verify SPayLater Cycle Tracking
         val spayId = accountIds[3]
         val loanDetails = harness.getLoanDetails(spayId)
-        assertNotNull(loanDetails)
-        assertEquals(15, loanDetails!!.cycleDay1)
+        assertEquals(listOf(15), loanDetails!!.parseDueDays())
     }
 
     /**
@@ -233,8 +232,7 @@ class Tier4RealWorldScenariosTest {
 
             val restoredLoan = recoveryHarness.getLoanDetails(loanId)
             assertNotNull(restoredLoan)
-            assertEquals(15, restoredLoan!!.cycleDay1)
-            assertEquals(30, restoredLoan.cycleDay2)
+            assertEquals(listOf(15, 30), restoredLoan!!.parseDueDays())
             assertEquals(100_000L, restoredLoan.minimumAmountDue)
             assertEquals(800_000L, restoredLoan.totalRemainingBalance)
 

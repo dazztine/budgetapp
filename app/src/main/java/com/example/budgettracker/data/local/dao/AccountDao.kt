@@ -63,6 +63,26 @@ interface AccountDao {
     fun getAccountBalance(accountId: Long): Flow<Long?>
 
     @Query("""
+        SELECT a.initialBalance + COALESCE((
+            SELECT SUM(
+                CASE 
+                    WHEN t.type = 'INCOME' AND t.accountId = a.id THEN t.amount
+                    WHEN t.type = 'EXPENSE' AND t.accountId = a.id THEN -t.amount
+                    WHEN t.type = 'TRANSFER' AND t.accountId = a.id THEN -t.amount
+                    WHEN t.type = 'TRANSFER' AND t.toAccountId = a.id THEN t.amount
+                    WHEN t.type = 'INSTALLMENT' AND t.accountId = a.id THEN -t.amount
+                    ELSE 0
+                END
+            )
+            FROM transactions t
+            WHERE t.accountId = a.id OR t.toAccountId = a.id
+        ), 0)
+        FROM accounts a
+        WHERE a.id = :accountId
+    """)
+    suspend fun getAccountBalanceDirect(accountId: Long): Long?
+
+    @Query("""
         SELECT 
             a.id,
             a.name,

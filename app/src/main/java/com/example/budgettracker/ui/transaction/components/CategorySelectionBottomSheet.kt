@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.data.model.TransactionType
+import com.example.budgettracker.ui.components.StandardBottomSheetDragHandle
 import com.example.budgettracker.ui.theme.AmberGlow
 import com.example.budgettracker.ui.theme.ZincCornerRadius
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
@@ -58,7 +59,7 @@ fun CategorySelectionBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
+        dragHandle = { StandardBottomSheetDragHandle() }
     ) {
         Column(
             modifier = Modifier

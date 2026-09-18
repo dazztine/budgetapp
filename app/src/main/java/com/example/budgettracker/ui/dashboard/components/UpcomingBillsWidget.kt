@@ -156,18 +156,15 @@ fun UpcomingBillsWidget(
             }
         } else {
             if (viewMode == "VERTICAL") {
-                // Stacked Vertical List
+                // Stacked Vertical List (Compact Row Style)
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     upcomingBills.forEach { item ->
-                        UpcomingBillCard(
+                        UpcomingBillVerticalCard(
                             item = item,
-                            onClick = { onBillClick(item) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(148.dp)
+                            onClick = { onBillClick(item) }
                         )
                     }
                 }
@@ -186,6 +183,133 @@ fun UpcomingBillsWidget(
                                 .height(148.dp)
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Compact, sleek row-style card for Upcoming Bills in Vertical List mode.
+ * Significantly reduced height compared to the carousel card, with dedicated row layout.
+ */
+@Composable
+fun UpcomingBillVerticalCard(
+    item: UpcomingBillItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val brandLogoRes = BrandLogoMapper.getLogoResId(item.presetId, item.name)
+
+    val typeIcon = when (item.accountType) {
+        AccountType.CASH -> Icons.Outlined.AccountBalanceWallet
+        AccountType.BANK, AccountType.SAVINGS -> Icons.Outlined.AccountBalance
+        AccountType.E_WALLET -> Icons.Outlined.PhoneAndroid
+        AccountType.BNPL, AccountType.LOAN, AccountType.CREDIT -> Icons.Outlined.CreditCard
+        AccountType.BILL -> Icons.Outlined.Receipt
+        AccountType.ASSET, null -> Icons.Outlined.Receipt
+    }
+
+    val (statusColor, statusText) = when (item.status) {
+        DueDateStatus.OVERDUE -> Pair(MutedCoral, "Overdue")
+        DueDateStatus.DUE_SOON -> {
+            if (item.daysUntilDue == 0L) Pair(Orange500, "Due Today")
+            else Pair(AmberGlow, "${item.daysUntilDue}d left")
+        }
+        DueDateStatus.UPCOMING -> Pair(MaterialTheme.colorScheme.onSurfaceVariant, "${item.daysUntilDue}d left")
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(ZincSoftCornerRadius))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(ZincSoftCornerRadius)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Icon / Brand Logo
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (brandLogoRes != null) {
+                    Icon(
+                        painter = painterResource(id = brandLogoRes),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(22.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = typeIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Title & Due info
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = item.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${item.dueDate.month.name.take(3)} ${item.dueDate.dayOfMonth} • ${item.subtitle}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Amount Due & Status Pill
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = CurrencyUtils.formatCentavosToPesos(item.amountCentavos),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(statusColor.copy(alpha = 0.15f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = statusText,
+                        color = statusColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

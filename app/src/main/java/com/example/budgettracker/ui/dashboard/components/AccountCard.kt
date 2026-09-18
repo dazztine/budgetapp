@@ -37,6 +37,7 @@ import com.example.budgettracker.data.local.entity.AccountWithBalance
 import com.example.budgettracker.data.local.entity.AccountWithLoanDetails
 import com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity
 import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.ui.theme.ZincCornerRadius
 import com.example.budgettracker.ui.util.BrandLogoMapper
 import com.example.budgettracker.util.CurrencyUtils
@@ -128,40 +129,33 @@ fun AccountCard(
                     || accountWithBalance.type == AccountType.CREDIT
 
                 if (isDebtAccount) {
-                    // Primary: credit limit (or "—" if not set) — neutral color, represents spending power
                     val limitAmount: Long? = creditDetails?.creditLimit ?: loanDetails?.loanDetails?.creditLimit
-                    val primaryText = when {
-                        !isBalanceVisible -> "₱ ••••••"
-                        limitAmount != null -> CurrencyUtils.formatCentavosToPesos(limitAmount)
-                        else -> null // no limit: fall back to showing owed amount as primary
-                    }
+                    val availableCredit = BudgetRepository.calculateAvailableCredit(limitAmount, accountWithBalance.currentBalance)
 
-                    if (primaryText != null) {
+                    if (availableCredit != null) {
+                        // Primary: Available Credit (neutral onSurface when >= 0, Muted Coral when < 0)
+                        val primaryText = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(availableCredit) else "₱ ••••••"
+                        val primaryColor = if (availableCredit < 0L) Color(0xFFF87171) else MaterialTheme.colorScheme.onSurface
+
                         Text(
                             text = primaryText,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = primaryColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        // Secondary: owed amount — only shown when there is actual debt
-                        val owedAmount = accountWithBalance.currentBalance
-                        if (owedAmount < 0L) {
-                            val owedFormatted = if (isBalanceVisible) {
-                                "Owed: ${CurrencyUtils.formatCentavosToPesos(owedAmount)}"
-                            } else {
-                                "Owed: ₱ ••••••"
-                            }
-                            Text(
-                                text = owedFormatted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFFF87171), // Muted Coral
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+
+                        // Secondary subtitle line: "of ₱5,100.00 limit"
+                        val limitFormatted = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(limitAmount!!) else "₱ ••••••"
+                        Text(
+                            text = "of $limitFormatted limit",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     } else {
                         // No limit set: fall back — show total owed as primary in Muted Coral
                         Text(

@@ -59,6 +59,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.example.budgettracker.ui.components.StandardBottomSheetDragHandle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -292,7 +293,7 @@ fun AddEditAccountDialog(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
+        dragHandle = { StandardBottomSheetDragHandle() },
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
@@ -870,6 +871,7 @@ fun AddEditAccountDialog(
                                     type = finalType,
                                     presetId = selectedPresetId.ifEmpty { selectedPreset?.id },
                                     initialBalance = if (isDebtAccount) 0L else if (initialAccount == null) targetBalCentavos else initialAccount.initialBalance,
+                                    includeInNetWorth = initialAccount?.includeInNetWorth ?: (finalType != AccountType.BILL),
                                     displayOrder = initialAccount?.displayOrder ?: 0
                                 )
 

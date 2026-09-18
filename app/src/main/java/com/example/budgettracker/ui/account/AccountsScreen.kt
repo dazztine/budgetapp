@@ -80,6 +80,9 @@ import kotlin.math.abs
 @Composable
 fun AccountsScreen(
     viewModel: DashboardViewModel,
+    targetAccountId: Long? = null,
+    scrollToPaySection: Boolean = false,
+    onClearTargetAccount: () -> Unit = {},
     onNavigateBack: () -> Unit = {},
     onEditTransaction: (TransactionEntity) -> Unit = {},
     onPayBill: ((accountId: Long, amountCentavos: Long, cycleId: Long?) -> Unit)? = null,
@@ -99,6 +102,20 @@ fun AccountsScreen(
     var isHiddenSectionExpanded by remember { mutableStateOf(false) }
 
     var selectedAccountForDetailSheet by remember { mutableStateOf<AccountWithBalance?>(null) }
+    var detailScrollToPaySection by remember { mutableStateOf(false) }
+
+    LaunchedEffect(targetAccountId, accountsWithBalances) {
+        if (targetAccountId != null && accountsWithBalances.isNotEmpty()) {
+            val acc = accountsWithBalances.find { it.id == targetAccountId }
+            if (acc != null) {
+                // Short slight pause so user sees that it landed on Accounts page before expanding the detail
+                kotlinx.coroutines.delay(180)
+                selectedAccountForDetailSheet = acc
+                detailScrollToPaySection = scrollToPaySection
+                onClearTargetAccount()
+            }
+        }
+    }
     val detailSheetTransactions by remember(selectedAccountForDetailSheet?.id) {
         selectedAccountForDetailSheet?.id?.let { id ->
             viewModel.getTransactionsForAccount(id)
@@ -186,7 +203,12 @@ fun AccountsScreen(
             installmentPlans = detailSheetInstallmentPlans,
             paidCycles = detailSheetPaidCycles,
             pendingCycles = detailSheetPendingCycles,
-            onNavigateBack = { selectedAccountForDetailSheet = null },
+            initialTab = 0,
+            scrollToPaySection = detailScrollToPaySection,
+            onNavigateBack = {
+                selectedAccountForDetailSheet = null
+                detailScrollToPaySection = false
+            },
             onEditClick = {
                 val accToEdit = selectedAcc
                 selectedAccountForDetailSheet = null

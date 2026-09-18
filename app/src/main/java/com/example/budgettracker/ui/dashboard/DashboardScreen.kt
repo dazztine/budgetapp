@@ -41,6 +41,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,11 +65,13 @@ import com.example.budgettracker.ui.dashboard.components.AccountCard
 import com.example.budgettracker.ui.dashboard.components.EditRecurringBillDialog
 import com.example.budgettracker.ui.dashboard.components.NetWorthCard
 import com.example.budgettracker.ui.dashboard.components.RecentTransactionsList
+import com.example.budgettracker.ui.dashboard.components.RecurringBillDetailBottomSheet
 import com.example.budgettracker.ui.dashboard.components.UpcomingBillsWidget
 import com.example.budgettracker.ui.theme.Green500
 import com.example.budgettracker.ui.theme.Orange500
 import com.example.budgettracker.ui.theme.Red500
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+import com.example.budgettracker.ui.transaction.components.TransactionDetailBottomSheet
 import com.example.budgettracker.util.CurrencyUtils
 import com.example.budgettracker.util.LoanDateUtils
 import kotlinx.coroutines.flow.flowOf
@@ -81,6 +84,7 @@ fun DashboardScreen(
     repository: BudgetRepository,
     onNavigateToAddTransaction: () -> Unit,
     onNavigateToAccounts: () -> Unit = {},
+    onNavigateToAccountWithBill: (accountId: Long, cycleId: Long?) -> Unit = { _, _ -> },
     onNavigateToHistory: () -> Unit = {},
     onEditTransaction: (TransactionEntity) -> Unit = {},
     onPayBill: ((accountId: Long, amountCentavos: Long, cycleId: Long?) -> Unit)? = null,
@@ -104,6 +108,10 @@ fun DashboardScreen(
     var transactionToDelete by remember { mutableStateOf<TransactionEntity?>(null) }
     var selectedAccountForDetailSheet by remember { mutableStateOf<AccountWithBalance?>(null) }
     var recurringBillToEdit by remember { mutableStateOf<RecurringBillEntity?>(null) }
+    var viewingTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
+    var viewingRecurringBill by remember { mutableStateOf<RecurringBillEntity?>(null) }
+    var accountDetailInitialTab by remember { mutableIntStateOf(0) }
+    var accountDetailScrollToPaySection by remember { mutableStateOf(false) }
 
     val detailSheetTransactions by remember(selectedAccountForDetailSheet?.id) {
         selectedAccountForDetailSheet?.id?.let { id ->
@@ -273,13 +281,15 @@ fun DashboardScreen(
                 onToggleViewMode = { viewModel.toggleUpcomingBillsViewMode() },
                 onBillClick = { item ->
                     if (item.accountId != null) {
-                        val acc = accountsWithBalances.find { it.id == item.accountId }
-                        if (acc != null) {
-                            selectedAccountForDetailSheet = acc
-                        }
+                        onNavigateToAccountWithBill(item.accountId, item.cycleId)
                     } else if (item.recurringBillId != null) {
                         scope.launch {
-                            recurringBillToEdit = repository.getRecurringBillById(item.recurringBillId)
+                            val rBill = repository.getRecurringBillById(item.recurringBillId)
+                            if (rBill?.accountId != null) {
+                                onNavigateToAccountWithBill(rBill.accountId, null)
+                            } else {
+                                viewingRecurringBill = rBill
+                            }
                         }
                     }
                 }
@@ -328,7 +338,11 @@ fun DashboardScreen(
                                     loanDetails = loanDetail,
                                     creditDetails = creditDetail,
                                     isBalanceVisible = isBalanceVisible,
-                                    onEditClick = { selectedAccountForDetailSheet = accountItem },
+                                    onEditClick = {
+                                        accountDetailInitialTab = 0
+                                        accountDetailScrollToPaySection = false
+                                        selectedAccountForDetailSheet = accountItem
+                                    },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -345,8 +359,8 @@ fun DashboardScreen(
                                 .clip(RoundedCornerShape(ZincSoftCornerRadius))
                                 .background(MaterialTheme.colorScheme.surface)
                                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(ZincSoftCornerRadius))
-                                .clickable(onClick = onNavigateToAccounts)
-                                .padding(12.dp)
+                            .clickable(onClick = onNavigateToAccounts)
+                            .padding(12.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -400,11 +414,51 @@ fun DashboardScreen(
                 RecentTransactionsList(
                     transactions = recentTransactions,
                     accounts = accountsWithBalances,
-                    onTransactionClick = onEditTransaction,
+                    onTransactionClick = { viewingTransaction = it },
                     onDeleteClick = { transactionToDelete = it }
                 )
             }
         }
+    }
+
+    viewingTransaction?.let { tx ->
+        TransactionDetailBottomSheet(
+            transaction = tx,
+            accounts = accountsWithBalances,
+            onDismiss = { viewingTransaction = null },
+            onEditClick = {
+                viewingTransaction = null
+                onEditTransaction(it)
+            },
+            onDeleteClick = {
+                viewingTransaction = null
+                viewModel.deleteTransaction(it)
+            }
+        )
+    }
+
+    viewingRecurringBill?.let { bill ->
+        RecurringBillDetailBottomSheet(
+            bill = bill,
+            accounts = accountsWithBalances,
+            onDismiss = { viewingRecurringBill = null },
+            onEditClick = {
+                viewingRecurringBill = null
+                recurringBillToEdit = it
+            },
+            onDeleteClick = {
+                viewingRecurringBill = null
+                viewModel.deleteRecurringBill(it)
+            },
+            onPayClick = {
+                viewingRecurringBill = null
+                if (it.accountId != null) {
+                    onPayBill?.invoke(it.accountId, it.amount, null)
+                } else {
+                    onNavigateToAddTransaction()
+                }
+            }
+        )
     }
 
     transactionToDelete?.let { tx ->
@@ -464,7 +518,12 @@ fun DashboardScreen(
             installmentPlans = detailSheetInstallmentPlans,
             paidCycles = detailSheetPaidCycles,
             pendingCycles = detailSheetPendingCycles,
-            onDismiss = { selectedAccountForDetailSheet = null },
+            initialTab = accountDetailInitialTab,
+            scrollToPaySection = accountDetailScrollToPaySection,
+            onDismiss = {
+                selectedAccountForDetailSheet = null
+                accountDetailScrollToPaySection = false
+            },
             onEditClick = {
                 selectedAccountForDetailSheet = null
                 onNavigateToAccounts()

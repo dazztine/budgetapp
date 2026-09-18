@@ -515,6 +515,26 @@ fun DeleteTransactionConfirmDialog(
 /**
  * Shared Bottom Sheet Container with 20dp top radius and drag handle bar.
  */
+@Composable
+fun StandardBottomSheetDragHandle(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .width(36.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BottomSheetContainer(
@@ -528,16 +548,7 @@ fun BottomSheetContainer(
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 10.dp)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
-            )
-        }
+        dragHandle = { StandardBottomSheetDragHandle() }
     ) {
         Column(
             modifier = Modifier

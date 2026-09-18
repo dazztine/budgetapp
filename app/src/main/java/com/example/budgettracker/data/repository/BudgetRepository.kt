@@ -185,6 +185,7 @@ class BudgetRepository(
             )
             transactionDao.insert(tx)
         }
+        ensurePendingCyclesForAccount(plan.accountId)
         return planId
     }
 
@@ -206,6 +207,9 @@ class BudgetRepository(
                 transactionDao.insert(tx)
             }
         }
+        plans.map { it.accountId }.distinct().forEach { accId ->
+            ensurePendingCyclesForAccount(accId)
+        }
         return ids
     }
 
@@ -216,12 +220,14 @@ class BudgetRepository(
         if (purchaseTx != null && purchaseTx.amount != plan.totalPurchaseAmount) {
             transactionDao.update(purchaseTx.copy(amount = plan.totalPurchaseAmount))
         }
+        ensurePendingCyclesForAccount(plan.accountId)
         return count
     }
 
     suspend fun deleteInstallmentPlan(plan: InstallmentPlanEntity): Int {
         transactionDao.deleteByInstallmentPlan(plan.id)
         val count = installmentPlanDao.delete(plan)
+        ensurePendingCyclesForAccount(plan.accountId)
         return count
     }
 
@@ -241,6 +247,7 @@ class BudgetRepository(
                 updatedAt = System.currentTimeMillis()
             )
             installmentPlanDao.update(updated)
+            ensurePendingCyclesForAccount(plan.accountId)
         }
         return insertedId
     }
@@ -449,11 +456,21 @@ class BudgetRepository(
             AccountType.LOAN, AccountType.BNPL -> {
                 val loanDetails = loanDetailsDao?.getByAccountId(accountId) ?: return
                 val currentBalance = accountDao.getAccountBalanceDirect(accountId) ?: 0L
-                val pendingCycles = dao.getPendingCyclesDirect(accountId)
-                if (loanDetails.totalRemainingBalance <= 0 && currentBalance >= 0) {
+                var pendingCycles = dao.getPendingCyclesDirect(accountId)
+                val activePlans = installmentPlanDao.getByAccountIdDirect(accountId).filter { it.remainingBalance > 0 }
+
+                if (loanDetails.totalRemainingBalance <= 0 && currentBalance >= 0 && activePlans.isEmpty()) {
                     pendingCycles.forEach { dao.delete(it) }
                     return
                 }
+
+                // Compute default amount due: sum of active installment monthly payments if any exist; otherwise fallback to minimumAmountDue
+                val computedDue = if (activePlans.isNotEmpty()) {
+                    calculateActiveInstallmentsMonthlySum(activePlans)
+                } else {
+                    loanDetails.minimumAmountDue
+                }
+
                 val dueDays = loanDetails.parseDueDays()
                 val paidCycles = dao.getPaidCyclesDirect(accountId)
 
@@ -483,11 +500,19 @@ class BudgetRepository(
                         LoanBillingCycleEntity(
                             accountId = accountId,
                             cycleDueDate = dueEpoch,
-                            amountDue = loanDetails.minimumAmountDue,
+                            amountDue = computedDue,
                             isPaid = false,
                             isManualOverride = false
                         )
                     )
+                }
+
+                // Update existing pending cycles that haven't been manually overridden
+                pendingCycles = dao.getPendingCyclesDirect(accountId)
+                for (cycle in pendingCycles) {
+                    if (!cycle.isManualOverride && cycle.amountDue != computedDue) {
+                        dao.update(cycle.copy(amountDue = computedDue))
+                    }
                 }
             }
             AccountType.BILL -> {
@@ -550,13 +575,19 @@ class BudgetRepository(
     ) {
         val dao = loanBillingCycleDao ?: return
         val existingPending = dao.getPendingCyclesDirect(accountId)
+        val paidCycles = dao.getPaidCyclesDirect(accountId)
         val currentYm = java.time.YearMonth.from(today)
         val zoneId = java.time.ZoneId.systemDefault()
 
         for (day in dueDaysList) {
             val clampedDay = day.coerceIn(1, currentYm.lengthOfMonth())
             val candidateDate = currentYm.atDay(clampedDay)
-            val dueDate = if (candidateDate.isBefore(today)) {
+            val hasPaidCandidate = paidCycles.any {
+                val paidDate = java.time.Instant.ofEpochMilli(it.cycleDueDate).atZone(zoneId).toLocalDate()
+                paidDate.year == candidateDate.year && paidDate.month == candidateDate.month && paidDate.dayOfMonth == candidateDate.dayOfMonth
+            }
+
+            val dueDate = if (candidateDate.isBefore(today) || hasPaidCandidate) {
                 val nextYm = currentYm.plusMonths(1)
                 nextYm.atDay(day.coerceIn(1, nextYm.lengthOfMonth()))
             } else {
@@ -616,11 +647,15 @@ class BudgetRepository(
 
     companion object {
         fun calculateAvailableCredit(creditLimit: Long?, currentBalance: Long): Long? {
-            return creditLimit?.let { (it + currentBalance).coerceAtLeast(0L) }
+            return creditLimit?.let { it + currentBalance }
         }
 
         fun calculateInstallmentPlansTotal(plans: List<InstallmentPlanEntity>): Long {
             return plans.filter { it.remainingBalance > 0 }.sumOf { it.remainingBalance }
+        }
+
+        fun calculateActiveInstallmentsMonthlySum(plans: List<InstallmentPlanEntity>): Long {
+            return plans.filter { it.remainingBalance > 0 }.sumOf { it.monthlyPaymentAmount }
         }
     }
 }

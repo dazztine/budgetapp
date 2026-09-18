@@ -95,6 +95,15 @@ fun AppNavigation(
         showTransactionModal = true
     }
 
+    var targetAccountIdForAccountsScreen by remember { mutableStateOf<Long?>(null) }
+    var targetScrollToPayForAccountsScreen by remember { mutableStateOf(false) }
+
+    val onNavigateToAccountWithBill: (Long, Long?) -> Unit = { accountId, _ ->
+        targetAccountIdForAccountsScreen = accountId
+        targetScrollToPayForAccountsScreen = true
+        currentTab = BottomTab.ACCOUNTS
+    }
+
     val onLogTransactionForAccount: (Long) -> Unit = { accountId ->
         transactionViewModel.prepareForNewTransaction(accountId = accountId)
         showTransactionModal = true
@@ -127,6 +136,7 @@ fun AppNavigation(
                                     showTransactionModal = true
                                 },
                                 onNavigateToAccounts = { currentTab = BottomTab.ACCOUNTS },
+                                onNavigateToAccountWithBill = onNavigateToAccountWithBill,
                                 onNavigateToHistory = { isHistoryVisible = true },
                                 onEditTransaction = onEditTransaction,
                                 onPayBill = onPayBill,
@@ -144,6 +154,12 @@ fun AppNavigation(
                         BottomTab.ACCOUNTS -> {
                             AccountsScreen(
                                 viewModel = dashboardViewModel,
+                                targetAccountId = targetAccountIdForAccountsScreen,
+                                scrollToPaySection = targetScrollToPayForAccountsScreen,
+                                onClearTargetAccount = {
+                                    targetAccountIdForAccountsScreen = null
+                                    targetScrollToPayForAccountsScreen = false
+                                },
                                 onEditTransaction = onEditTransaction,
                                 onPayBill = onPayBill,
                                 onLogTransactionForAccount = onLogTransactionForAccount

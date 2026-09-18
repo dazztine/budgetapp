@@ -40,6 +40,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -85,6 +87,8 @@ fun ManualTransactionScreen(
     val amountInput by viewModel.amountInput.collectAsState()
     val selectedType by viewModel.selectedType.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
+    val loanAccounts by viewModel.loanAccounts.collectAsState()
+    val creditDetailsList by viewModel.creditDetailsList.collectAsState()
     val selectedAccountId by viewModel.selectedAccountId.collectAsState()
     val selectedToAccountId by viewModel.selectedToAccountId.collectAsState()
     val categoryInput by viewModel.categoryInput.collectAsState()
@@ -269,6 +273,8 @@ fun ManualTransactionScreen(
                         },
                         selectedAccount = selectedAccount,
                         accounts = availableAccounts,
+                        loanAccounts = loanAccounts,
+                        creditDetailsList = creditDetailsList,
                         onAccountSelected = { viewModel.setAccountId(it.id) }
                     )
                 }
@@ -279,6 +285,8 @@ fun ManualTransactionScreen(
                             label = "To Destination Account (Locked)",
                             selectedAccount = selectedToAccount,
                             accounts = listOf(selectedToAccount),
+                            loanAccounts = loanAccounts,
+                            creditDetailsList = creditDetailsList,
                             onAccountSelected = { /* locked when paying bill */ }
                         )
                     } else {
@@ -286,6 +294,8 @@ fun ManualTransactionScreen(
                             label = "To Destination Account",
                             selectedAccount = selectedToAccount,
                             accounts = accounts.filter { it.id != selectedAccountId },
+                            loanAccounts = loanAccounts,
+                            creditDetailsList = creditDetailsList,
                             onAccountSelected = { viewModel.setToAccountId(it.id) }
                         )
                     }
@@ -294,31 +304,27 @@ fun ManualTransactionScreen(
                 // Category Picker
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Category", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Box(
+                    OutlinedTextField(
+                        value = categoryInput,
+                        onValueChange = {},
+                        placeholder = { Text("Select category...", fontSize = 13.sp) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showCategoryBottomSheet = true }
-                    ) {
-                        OutlinedTextField(
-                            value = categoryInput,
-                            onValueChange = {},
-                            placeholder = { Text("Select category...", fontSize = 13.sp) },
-                            modifier = Modifier.fillMaxWidth(),
-                            readOnly = true,
-                            enabled = false,
-                            trailingIcon = {
-                                TextButton(onClick = { showCategoryBottomSheet = true }) {
-                                    Text("▼", fontSize = 10.sp)
-                                }
-                            },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                                disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            .clickable { showCategoryBottomSheet = true },
+                        readOnly = true,
+                        enabled = false,
+                        trailingIcon = {
+                            TextButton(onClick = { showCategoryBottomSheet = true }) {
+                                Text("▼", fontSize = 10.sp)
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
+                    )
                 }
 
                 // Name Input
@@ -341,7 +347,7 @@ fun ManualTransactionScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedBorderColor = AmberGlow,
                             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                         )
                     )
@@ -350,15 +356,16 @@ fun ManualTransactionScreen(
                 // Specific fields for INSTALLMENT
                 if (selectedType == TransactionType.INSTALLMENT) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Number of Installment Months", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Total Installments (Months)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedTextField(
                             value = totalInstallmentsInput,
                             onValueChange = { viewModel.setTotalInstallments(it) },
-                            placeholder = { Text("e.g. 3, 6, 12, 24", fontSize = 13.sp) },
+                            placeholder = { Text("e.g. 3, 6, 12", fontSize = 13.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                focusedBorderColor = AmberGlow,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                             )
                         )
@@ -402,8 +409,13 @@ fun ManualTransactionScreen(
                             modifier = Modifier.weight(1f, fill = false),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
+                            val amountLabel = when {
+                                isCalculatorVisible -> "Amount (Editing...)"
+                                selectedType == TransactionType.INSTALLMENT -> "Amount (Including interest)"
+                                else -> "Amount"
+                            }
                             Text(
-                                text = if (isCalculatorVisible) "Amount (Editing...)" else "Amount",
+                                text = amountLabel,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (isCalculatorVisible) AmberGlow else MaterialTheme.colorScheme.onSurfaceVariant

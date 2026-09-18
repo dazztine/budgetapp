@@ -58,6 +58,7 @@ import com.example.budgettracker.ui.theme.Orange500
 import com.example.budgettracker.ui.theme.Red400
 import com.example.budgettracker.ui.theme.Red500
 import com.example.budgettracker.ui.theme.ZincCornerRadius
+import com.example.budgettracker.ui.transaction.components.TransactionDetailBottomSheet
 import com.example.budgettracker.util.CurrencyUtils
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -78,6 +79,7 @@ fun TransactionHistoryScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
 
     var transactionToDelete by remember { mutableStateOf<TransactionEntity?>(null) }
+    var viewingTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
 
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy • h:mm a", Locale.getDefault()) }
 
@@ -109,6 +111,7 @@ fun TransactionHistoryScreen(
                         }
                     }
                 },
+                windowInsets = androidx.compose.foundation.layout.WindowInsets(top = 0.dp),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground
@@ -285,7 +288,7 @@ fun TransactionHistoryScreen(
                                 .clip(RoundedCornerShape(ZincCornerRadius))
                                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(ZincCornerRadius))
                                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(ZincCornerRadius))
-                                .clickable { onEditTransaction(tx) }
+                                .clickable { viewingTransaction = tx }
                                 .padding(12.dp)
                         ) {
                             Row(
@@ -357,6 +360,22 @@ fun TransactionHistoryScreen(
                 }
             }
         }
+    }
+
+    viewingTransaction?.let { tx ->
+        TransactionDetailBottomSheet(
+            transaction = tx,
+            accountEntities = accounts,
+            onDismiss = { viewingTransaction = null },
+            onEditClick = {
+                viewingTransaction = null
+                onEditTransaction(it)
+            },
+            onDeleteClick = {
+                viewingTransaction = null
+                viewModel.deleteTransaction(it)
+            }
+        )
     }
 
     // Confirmation dialog before deleting transaction

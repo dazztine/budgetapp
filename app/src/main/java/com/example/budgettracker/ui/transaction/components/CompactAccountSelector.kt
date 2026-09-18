@@ -29,8 +29,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.AccountWithBalance
+import com.example.budgettracker.data.local.entity.AccountWithLoanDetails
+import com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity
 import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.ui.theme.ZincCornerRadius
 import com.example.budgettracker.util.CurrencyUtils
 
@@ -40,7 +45,9 @@ fun CompactAccountSelector(
     selectedAccount: AccountWithBalance?,
     accounts: List<AccountWithBalance>,
     onAccountSelected: (AccountWithBalance) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    loanAccounts: List<AccountWithLoanDetails> = emptyList(),
+    creditDetailsList: List<CreditAccountDetailsEntity> = emptyList()
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -65,7 +72,28 @@ fun CompactAccountSelector(
                 ) {
                     rowItems.forEach { acc ->
                         val isSelected = acc.id == selectedAccount?.id
-                        val balanceVal = acc.currentBalance
+                        val isDebtAccount = acc.type == AccountType.LOAN || acc.type == AccountType.BNPL || acc.type == AccountType.CREDIT
+
+                        val creditLimit: Long? = if (isDebtAccount) {
+                            creditDetailsList.find { it.accountId == acc.id }?.creditLimit
+                                ?: loanAccounts.find { it.account.id == acc.id }?.loanDetails?.creditLimit
+                        } else null
+
+                        val availableCredit = if (isDebtAccount) {
+                            BudgetRepository.calculateAvailableCredit(creditLimit, acc.currentBalance)
+                        } else null
+
+                        val balanceText = when {
+                            availableCredit != null -> CurrencyUtils.formatCentavosToPesos(availableCredit)
+                            isDebtAccount && acc.currentBalance < 0L -> "Owed: ${CurrencyUtils.formatCentavosToPesos(-acc.currentBalance)}"
+                            else -> CurrencyUtils.formatCentavosToPesos(acc.currentBalance)
+                        }
+
+                        val balanceTextColor = when {
+                            availableCredit != null && availableCredit < 0L -> Color(0xFFF87171) // Muted Coral for negative available credit
+                            isDebtAccount && acc.currentBalance < 0L && availableCredit == null -> Color(0xFFF87171)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
 
                         val typeIcon = when (acc.type) {
                             AccountType.CASH -> Icons.Outlined.AccountBalanceWallet
@@ -118,10 +146,10 @@ fun CompactAccountSelector(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = CurrencyUtils.formatCentavosToPesos(balanceVal),
+                                        text = balanceText,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = balanceTextColor,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )

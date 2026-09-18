@@ -58,7 +58,9 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.example.budgettracker.ui.components.StandardBottomSheetDragHandle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +100,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+import com.example.budgettracker.ui.transaction.components.TransactionDetailBottomSheet
 import com.example.budgettracker.ui.util.BrandLogoMapper
 import com.example.budgettracker.util.CurrencyUtils
 import java.text.SimpleDateFormat
@@ -122,6 +125,7 @@ fun AccountDetailBodyContent(
     paidCycles: List<LoanBillingCycleEntity> = emptyList(),
     pendingCycles: List<LoanBillingCycleEntity> = emptyList(),
     initialTab: Int = 0,
+    scrollToPaySection: Boolean = false,
     onEditClick: () -> Unit,
     onNetWorthToggle: (Boolean) -> Unit,
     onDeleteTransaction: (TransactionEntity) -> Unit = {},
@@ -135,6 +139,8 @@ fun AccountDetailBodyContent(
     val isLoan = account.type == AccountType.LOAN || account.type == AccountType.BNPL
     val isCredit = account.type == AccountType.CREDIT
 
+    var viewingTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
+
     if (isCredit) {
         CreditAccountDetailContent(
             account = account,
@@ -144,10 +150,11 @@ fun AccountDetailBodyContent(
             paidCycles = paidCycles,
             pendingCycles = pendingCycles,
             initialTab = initialTab,
+            scrollToPaySection = scrollToPaySection,
             onEditClick = onEditClick,
             onNetWorthToggle = onNetWorthToggle,
             onDeleteTransaction = onDeleteTransaction,
-            onEditTransaction = onEditTransaction,
+            onEditTransaction = { viewingTransaction = it },
             onPayBill = onPayBill,
             onLogTransactionForAccount = onLogTransactionForAccount,
             onUpdateCycleDueDate = onUpdateCycleDueDate,
@@ -164,10 +171,11 @@ fun AccountDetailBodyContent(
             paidCycles = paidCycles,
             pendingCycles = pendingCycles,
             initialTab = initialTab,
+            scrollToPaySection = scrollToPaySection,
             onEditClick = onEditClick,
             onNetWorthToggle = onNetWorthToggle,
             onDeleteTransaction = onDeleteTransaction,
-            onEditTransaction = onEditTransaction,
+            onEditTransaction = { viewingTransaction = it },
             onPayBill = onPayBill,
             onLogTransactionForAccount = onLogTransactionForAccount,
             onUpdateCycleDueDate = onUpdateCycleDueDate,
@@ -185,8 +193,24 @@ fun AccountDetailBodyContent(
             onEditClick = onEditClick,
             onNetWorthToggle = onNetWorthToggle,
             onDeleteTransaction = onDeleteTransaction,
-            onEditTransaction = onEditTransaction,
+            onEditTransaction = { viewingTransaction = it },
             isBalanceVisible = isBalanceVisible
+        )
+    }
+
+    viewingTransaction?.let { tx ->
+        TransactionDetailBottomSheet(
+            transaction = tx,
+            accounts = allAccounts,
+            onDismiss = { viewingTransaction = null },
+            onEditClick = {
+                viewingTransaction = null
+                onEditTransaction(it)
+            },
+            onDeleteClick = {
+                viewingTransaction = null
+                onDeleteTransaction(it)
+            }
         )
     }
 }
@@ -205,6 +229,7 @@ fun AccountDetailSheet(
     paidCycles: List<LoanBillingCycleEntity> = emptyList(),
     pendingCycles: List<LoanBillingCycleEntity> = emptyList(),
     initialTab: Int = 0,
+    scrollToPaySection: Boolean = false,
     onDismiss: () -> Unit,
     onEditClick: () -> Unit,
     onNetWorthToggle: (Boolean) -> Unit,
@@ -223,16 +248,7 @@ fun AccountDetailSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                BottomSheetDefaults.DragHandle()
-            }
-        }
+        dragHandle = { StandardBottomSheetDragHandle() }
     ) {
         AccountDetailBodyContent(
             account = account,
@@ -246,6 +262,7 @@ fun AccountDetailSheet(
             paidCycles = paidCycles,
             pendingCycles = pendingCycles,
             initialTab = initialTab,
+            scrollToPaySection = scrollToPaySection,
             onEditClick = onEditClick,
             onNetWorthToggle = onNetWorthToggle,
             onDeleteTransaction = { transactionToDelete = it },
@@ -283,6 +300,7 @@ fun AccountDetailScreen(
     paidCycles: List<LoanBillingCycleEntity> = emptyList(),
     pendingCycles: List<LoanBillingCycleEntity> = emptyList(),
     initialTab: Int = 0,
+    scrollToPaySection: Boolean = false,
     onNavigateBack: () -> Unit,
     onEditClick: () -> Unit,
     onNetWorthToggle: (Boolean) -> Unit,
@@ -331,6 +349,7 @@ fun AccountDetailScreen(
                         )
                     }
                 },
+                windowInsets = androidx.compose.foundation.layout.WindowInsets(top = 0.dp),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground
@@ -357,6 +376,7 @@ fun AccountDetailScreen(
                 paidCycles = paidCycles,
                 pendingCycles = pendingCycles,
                 initialTab = initialTab,
+                scrollToPaySection = scrollToPaySection,
                 onEditClick = onEditClick,
                 onNetWorthToggle = onNetWorthToggle,
                 onDeleteTransaction = { transactionToDelete = it },
@@ -390,6 +410,7 @@ private fun CreditAccountDetailContent(
     paidCycles: List<LoanBillingCycleEntity>,
     pendingCycles: List<LoanBillingCycleEntity> = emptyList(),
     initialTab: Int = 0,
+    scrollToPaySection: Boolean = false,
     onEditClick: () -> Unit,
     onNetWorthToggle: (Boolean) -> Unit,
     onDeleteTransaction: (TransactionEntity) -> Unit,
@@ -427,6 +448,14 @@ private fun CreditAccountDetailContent(
     }
 
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(scrollToPaySection) {
+        if (scrollToPaySection) {
+            kotlinx.coroutines.delay(150)
+            scrollState.animateScrollTo(850)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -507,6 +536,7 @@ private fun CreditAccountDetailContent(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Header Card: "Available to spend" as primary, credit limit + owed as secondary stats
+            // Header Card: Available Credit as primary, Credit limit and What you owe as secondary
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -517,22 +547,27 @@ private fun CreditAccountDetailContent(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Available to spend",
+                        text = "Available credit",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    val creditLimit = creditDetails?.creditLimit ?: 0L
-                    val howMuchYouCanSpend = creditLimit + account.currentBalance
+                    val creditLimit = creditDetails?.creditLimit
+                    val availableCredit = BudgetRepository.calculateAvailableCredit(creditLimit, account.currentBalance)
+
+                    val primaryText = when {
+                        !isBalanceVisible -> "₱ ••••••"
+                        availableCredit != null -> CurrencyUtils.formatCentavosToPesos(availableCredit)
+                        else -> "—"
+                    }
+                    val primaryColor = if (availableCredit != null && availableCredit < 0L) Color(0xFFF87171) else MaterialTheme.colorScheme.onSurface
 
                     Text(
-                        text = if (creditDetails != null) {
-                            if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(howMuchYouCanSpend.coerceAtLeast(0L)) else "₱ ••••••"
-                        } else "—",
+                        text = primaryText,
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = primaryColor
                     )
 
                     Spacer(modifier = Modifier.height(2.dp))
@@ -548,7 +583,7 @@ private fun CreditAccountDetailContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = if (creditDetails != null) {
+                                text = if (creditLimit != null) {
                                     if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(creditLimit) else "₱ ••••••"
                                 } else "Not set",
                                 fontSize = 14.sp,
@@ -1061,6 +1096,7 @@ private fun LoanAccountDetailContent(
     paidCycles: List<LoanBillingCycleEntity>,
     pendingCycles: List<LoanBillingCycleEntity> = emptyList(),
     initialTab: Int = 0,
+    scrollToPaySection: Boolean = false,
     onEditClick: () -> Unit,
     onNetWorthToggle: (Boolean) -> Unit,
     onDeleteTransaction: (TransactionEntity) -> Unit,
@@ -1098,6 +1134,14 @@ private fun LoanAccountDetailContent(
     }
 
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(scrollToPaySection) {
+        if (scrollToPaySection) {
+            kotlinx.coroutines.delay(150)
+            scrollState.animateScrollTo(850)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -1178,7 +1222,7 @@ private fun LoanAccountDetailContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Header Card: Credit Limit as primary (or Total Owed fallback), debt as secondary stat
+            // Header Card: Available Credit as primary, Credit Limit and What you owe as secondary
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1189,21 +1233,25 @@ private fun LoanAccountDetailContent(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val hasLimit = loanDetails?.creditLimit != null
+                    val availableCredit = BudgetRepository.calculateAvailableCredit(loanDetails?.creditLimit, account.currentBalance)
 
                     Text(
-                        text = if (hasLimit) "Credit limit" else "Total owed",
+                        text = if (hasLimit) "Available credit" else "Total owed",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    if (hasLimit) {
-                        // Primary: credit limit — represents spending power, neutral color
+                    if (hasLimit && availableCredit != null) {
+                        // Primary: Available Credit (neutral onSurface when >= 0, Muted Coral when < 0)
+                        val primaryText = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(availableCredit) else "₱ ••••••"
+                        val primaryColor = if (availableCredit < 0L) Color(0xFFF87171) else MaterialTheme.colorScheme.onSurface
+
                         Text(
-                            text = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(loanDetails!!.creditLimit) else "₱ ••••••",
+                            text = primaryText,
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = primaryColor
                         )
                     } else {
                         // No limit set — fall back to Total Owed as primary in Muted Coral
@@ -1224,26 +1272,21 @@ private fun LoanAccountDetailContent(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    // Two-Column Row: Available Credit & What you owe
+                    // Two-Column Row: Credit limit & What you owe
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        val availableCredit = BudgetRepository.calculateAvailableCredit(
-                            loanDetails?.creditLimit,
-                            account.currentBalance
-                        )
-
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Available credit",
+                                text = "Credit limit",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = if (loanDetails?.creditLimit != null) {
-                                    if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(availableCredit ?: 0L) else "₱ ••••••"
-                                } else "—",
+                                    if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(loanDetails.creditLimit) else "₱ ••••••"
+                                } else "Not set",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface

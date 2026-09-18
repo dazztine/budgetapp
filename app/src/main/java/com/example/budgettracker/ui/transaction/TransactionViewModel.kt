@@ -47,6 +47,12 @@ class TransactionViewModel(
     val accounts: StateFlow<List<AccountWithBalance>> = repository.activeAccountsWithBalances
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val loanAccounts: StateFlow<List<com.example.budgettracker.data.local.entity.AccountWithLoanDetails>> = repository.getAllActiveLoanAccounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val creditDetailsList: StateFlow<List<com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity>> = repository.allCreditDetails
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _amountInput = MutableStateFlow("")
     val amountInput: StateFlow<String> = _amountInput.asStateFlow()
 

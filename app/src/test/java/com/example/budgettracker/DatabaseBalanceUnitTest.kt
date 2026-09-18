@@ -975,11 +975,11 @@ class DatabaseBalanceUnitTest {
         val availableWithoutLimit = BudgetRepository.calculateAvailableCredit(null, balance)
         assertNull(availableWithoutLimit)
 
-        // When debt exceeds limit, available credit is coerced to 0
+        // When debt exceeds limit, available credit goes negative (not clamped to 0)
         val smallLimit = 100_000L
         val largeDebt = -150_000L
         val availableCapped = BudgetRepository.calculateAvailableCredit(smallLimit, largeDebt)
-        assertEquals(0L, availableCapped)
+        assertEquals(-50_000L, availableCapped)
     }
 
     @Test
@@ -1509,4 +1509,196 @@ class DatabaseBalanceUnitTest {
         assertEquals(1, pendingAfterExpense.size)
         assertEquals(2_000_00L, pendingAfterExpense.first().amountDue)
     }
+
+    @Test
+    fun testNetWorthInclusionToggleForCreditLoanBnpl() = runBlocking {
+        // 1. Create a Savings baseline account with ₱50,000 balance
+        val savingsId = accountDao.insert(
+            AccountEntity(name = "BPI Savings", type = AccountType.SAVINGS, initialBalance = 50_000_00L)
+        )
+        assertEquals(50_000_00L, repository.totalNetWorth.first())
+
+        // 2. Create a Credit account with ₱10,000 expense debt (includeInNetWorth = true by default)
+        val creditId = accountDao.insert(
+            AccountEntity(name = "BDO Credit Card", type = AccountType.CREDIT, initialBalance = 0L)
+        )
+        repository.insertCreditDetails(
+            CreditAccountDetailsEntity(accountId = creditId, creditLimit = 50_000_00L, statementDueDay = 15)
+        )
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 10_000_00L,
+                accountId = creditId,
+                category = "Electronics",
+                title = "Gadget",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+        // Balance is -₱10,000
+        assertEquals(-10_000_00L, repository.getComputedBalance(creditId).first())
+        // Net worth should be ₱50,000 - ₱10,000 = ₱40,000
+        assertEquals(40_000_00L, repository.totalNetWorth.first())
+
+        // 3. Toggle Credit account includeInNetWorth = false -> Net worth restores to ₱50,000
+        repository.updateNetWorthInclusion(creditId, false)
+        assertEquals(50_000_00L, repository.totalNetWorth.first())
+
+        // Toggle back to true -> Net worth reduces to ₱40,000
+        repository.updateNetWorthInclusion(creditId, true)
+        assertEquals(40_000_00L, repository.totalNetWorth.first())
+
+        // 4. Create a Loan/BNPL account with ₱15,000 installment debt
+        val loanId = accountDao.insert(
+            AccountEntity(name = "SPayLater", type = AccountType.BNPL, initialBalance = 0L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(accountId = loanId, dueDays = "15", minimumAmountDue = 5_000_00L, totalRemainingBalance = 0L)
+        )
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.INSTALLMENT,
+                amount = 15_000_00L,
+                accountId = loanId,
+                category = "Shopping",
+                title = "Phone Installment",
+                timestamp = System.currentTimeMillis()
+            )
+        )
+        // Loan balance is -₱15,000
+        assertEquals(-15_000_00L, repository.getComputedBalance(loanId).first())
+        // Net worth should now be ₱50,000 - ₱10,000 (credit) - ₱15,000 (loan) = ₱25,000
+        assertEquals(25_000_00L, repository.totalNetWorth.first())
+
+        // 5. Toggle Loan/BNPL account includeInNetWorth = false -> Net worth increases by ₱15,000 to ₱40,000
+        repository.updateNetWorthInclusion(loanId, false)
+        assertEquals(40_000_00L, repository.totalNetWorth.first())
+
+        // Toggle Credit account includeInNetWorth = false -> Net worth becomes ₱50,000 (both excluded)
+        repository.updateNetWorthInclusion(creditId, false)
+        assertEquals(50_000_00L, repository.totalNetWorth.first())
+
+        // Toggle both back to true -> Net worth becomes ₱25,000
+        repository.updateNetWorthInclusion(creditId, true)
+        repository.updateNetWorthInclusion(loanId, true)
+        assertEquals(25_000_00L, repository.totalNetWorth.first())
+    }
+
+    @Test
+    fun testCalculateAvailableCredit() {
+        // 1. Under limit: limit ₱50,000, balance -₱10,000 -> available ₱40,000
+        val underLimit = BudgetRepository.calculateAvailableCredit(
+            creditLimit = 50_000_00L,
+            currentBalance = -10_000_00L
+        )
+        assertEquals(40_000_00L, underLimit)
+
+        // 2. Zero debt: limit ₱50,000, balance ₱0 -> available ₱50,000
+        val zeroDebt = BudgetRepository.calculateAvailableCredit(
+            creditLimit = 50_000_00L,
+            currentBalance = 0L
+        )
+        assertEquals(50_000_00L, zeroDebt)
+
+        // 3. Over limit (negative available credit): limit ₱10,000, balance -₱15,000 -> available -₱5,000 (not clamped to 0)
+        val overLimit = BudgetRepository.calculateAvailableCredit(
+            creditLimit = 10_000_00L,
+            currentBalance = -15_000_00L
+        )
+        assertEquals(-5_000_00L, overLimit)
+
+        // 4. No credit limit set: returns null for fallback
+        val noLimit = BudgetRepository.calculateAvailableCredit(
+            creditLimit = null,
+            currentBalance = -5_000_00L
+        )
+        assertNull(noLimit)
+    }
+
+    @Test
+    fun testLoanBillingCycleAutoComputedAmountDueFromActiveInstallments() = runBlocking {
+        // 1. Create a brand-new BNPL account (starts at ₱0 debt, no installments yet)
+        val accountId = repository.insertAccount(
+            AccountEntity(name = "SPayLater", type = AccountType.BNPL, initialBalance = 0L)
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(
+                accountId = accountId,
+                dueDays = "15",
+                minimumAmountDue = 0L,
+                totalRemainingBalance = 0L,
+                creditLimit = 10_000_00L
+            )
+        )
+
+        // With 0 debt and 0 installments, there are no pending cycles yet
+        var pending = repository.getPendingCyclesDirect(accountId)
+        assertEquals(0, pending.size)
+
+        // 2. Add first installment: Air Frier ₱780/mo (total ₱2,340, 3 mos)
+        val plan1Id = repository.insertInstallmentPlan(
+            InstallmentPlanEntity(
+                accountId = accountId,
+                title = "Air Frier",
+                category = "Appliances",
+                totalPurchaseAmount = 2_340_00L,
+                totalInstallments = 3,
+                installmentsPaid = 0,
+                remainingBalance = 2_340_00L,
+                monthlyPaymentAmount = 780_00L
+            )
+        )
+
+        pending = repository.getPendingCyclesDirect(accountId)
+        assertEquals(1, pending.size)
+        assertEquals(780_00L, pending[0].amountDue)
+        assertFalse(pending[0].isManualOverride)
+
+        // 3. Add second installment: Phone ₱1,200/mo (total ₱7,200, 6 mos)
+        val plan2Id = repository.insertInstallmentPlan(
+            InstallmentPlanEntity(
+                accountId = accountId,
+                title = "Phone",
+                category = "Electronics",
+                totalPurchaseAmount = 7_200_00L,
+                totalInstallments = 6,
+                installmentsPaid = 0,
+                remainingBalance = 7_200_00L,
+                monthlyPaymentAmount = 1_200_00L
+            )
+        )
+
+        // Sum should automatically update to ₱1,980.00 (780 + 1200)
+        pending = repository.getPendingCyclesDirect(accountId)
+        assertEquals(1, pending.size)
+        assertEquals(1_980_00L, pending[0].amountDue)
+        assertFalse(pending[0].isManualOverride)
+
+        // 4. Test Manual Override persistence: User manually edits Amount Due to ₱2,100.00 (e.g. added bill fees)
+        repository.updateCycleAmountDue(pending[0].id, 2_100_00L, isManualOverride = true)
+        pending = repository.getPendingCyclesDirect(accountId)
+        assertEquals(2_100_00L, pending[0].amountDue)
+        assertTrue(pending[0].isManualOverride)
+
+        // Re-running ensurePendingCyclesForAccount must NOT overwrite manual override
+        repository.ensurePendingCyclesForAccount(accountId)
+        pending = repository.getPendingCyclesDirect(accountId)
+        assertEquals(2_100_00L, pending[0].amountDue)
+        assertTrue(pending[0].isManualOverride)
+
+        // 5. Test completion of an installment plan
+        // Reset manual override so auto-compute takes effect
+        repository.updateCycleAmountDue(pending[0].id, 1_980_00L, isManualOverride = false)
+
+        // Pay off Air Frier (remainingBalance becomes 0)
+        val airFrier = installmentPlanDao.getById(plan1Id)!!
+        repository.updateInstallmentPlan(airFrier.copy(remainingBalance = 0L, installmentsPaid = 3))
+
+        // Amount Due should now only include the active Phone installment: ₱1,200.00
+        pending = repository.getPendingCyclesDirect(accountId)
+        assertEquals(1, pending.size)
+        assertEquals(1_200_00L, pending[0].amountDue)
+        assertFalse(pending[0].isManualOverride)
+    }
 }
+

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.SouthWest
 import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -89,6 +90,7 @@ fun DashboardScreen(
     onEditTransaction: (TransactionEntity) -> Unit = {},
     onPayBill: ((accountId: Long, amountCentavos: Long, cycleId: Long?) -> Unit)? = null,
     onLogTransactionForAccount: ((accountId: Long) -> Unit)? = null,
+    onNavigateToSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val netWorth by viewModel.netWorth.collectAsState()
@@ -158,6 +160,15 @@ fun DashboardScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 22.sp
                     )
+                },
+                actions = {
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 },
                 windowInsets = androidx.compose.foundation.layout.WindowInsets(top = 0.dp),
                 colors = TopAppBarDefaults.topAppBarColors(

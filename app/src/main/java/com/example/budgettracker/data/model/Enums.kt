@@ -30,3 +30,9 @@ enum class TransactionType {
     TRANSFER,
     INSTALLMENT
 }
+
+enum class AssetTrend {
+    GAINS_VALUE,
+    LOSES_VALUE,
+    NEUTRAL
+}

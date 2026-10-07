@@ -44,13 +44,14 @@ class ReportsViewModel(
 
         val today = LocalDate.now()
         val (startTime, endTime) = period.getTimeRange(today)
+        val billAccountIds = bills.map { it.account.id }.toSet()
 
         val (totalExpense, spendingByCategory) = ReportsAnalyticsCalculator.calculateSpendingByCategory(
-            transactions, startTime, endTime
+            transactions, startTime, endTime, billAccountIds = billAccountIds
         )
 
         val incomeExpense = ReportsAnalyticsCalculator.calculateIncomeVsExpense(
-            transactions, period, today
+            transactions, period, today, billAccountIds = billAccountIds
         )
 
         val netWorthHistory = ReportsAnalyticsCalculator.calculateNetWorthHistory(
@@ -67,15 +68,15 @@ class ReportsViewModel(
         val totalObligationsDue = upcomingObligations.sumOf { it.amount }
 
         val topMerchants = ReportsAnalyticsCalculator.calculateTopMerchants(
-            transactions, startTime, endTime
+            transactions, startTime, endTime, billAccountIds = billAccountIds
         )
 
         val (trendMonths, categoryTrends) = ReportsAnalyticsCalculator.calculateCategoryTrends(
-            transactions, today
+            transactions, today, billAccountIds = billAccountIds
         )
 
         val dailyBurnRate = ReportsAnalyticsCalculator.calculateDailyBurnRate(
-            transactions, period, today
+            transactions, period, today, billAccountIds = billAccountIds
         )
 
         ReportsUiState(

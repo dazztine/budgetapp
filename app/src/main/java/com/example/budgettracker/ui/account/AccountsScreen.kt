@@ -72,6 +72,7 @@ import com.example.budgettracker.ui.dashboard.components.AccountCard
 import com.example.budgettracker.ui.dashboard.components.NetWorthCard
 import com.example.budgettracker.ui.theme.ZincCornerRadius
 import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -212,7 +213,7 @@ fun AccountsScreen(
             onEditClick = {
                 val accToEdit = selectedAcc
                 selectedAccountForDetailSheet = null
-                scope.launch {
+                scope.launch(Dispatchers.Main) {
                     accountToEdit = AccountEntity(
                         id = accToEdit.id,
                         name = accToEdit.name,
@@ -344,16 +345,12 @@ fun AccountsScreen(
                     } else if (idx1 == itemsToDisplay.size) {
                         InlineAddAccountCard(
                             onClick = {
-                                if (accountsWithBalances.size >= 10) {
-                                    showAccountLimitDialog = true
-                                } else {
-                                    accountToEdit = null
-                                    loanDetailsToEdit = null
-                                    savingsDetailsToEdit = null
-                                    billDetailsToEdit = null
-                                    creditDetailsToEdit = null
-                                    showAccountDialog = true
-                                }
+                                accountToEdit = null
+                                loanDetailsToEdit = null
+                                savingsDetailsToEdit = null
+                                billDetailsToEdit = null
+                                creditDetailsToEdit = null
+                                showAccountDialog = true
                             },
                             modifier = Modifier.weight(1f)
                         )
@@ -377,16 +374,12 @@ fun AccountsScreen(
                     } else if (idx2 == itemsToDisplay.size) {
                         InlineAddAccountCard(
                             onClick = {
-                                if (accountsWithBalances.size >= 10) {
-                                    showAccountLimitDialog = true
-                                } else {
-                                    accountToEdit = null
-                                    loanDetailsToEdit = null
-                                    savingsDetailsToEdit = null
-                                    billDetailsToEdit = null
-                                    creditDetailsToEdit = null
-                                    showAccountDialog = true
-                                }
+                                accountToEdit = null
+                                loanDetailsToEdit = null
+                                savingsDetailsToEdit = null
+                                billDetailsToEdit = null
+                                creditDetailsToEdit = null
+                                showAccountDialog = true
                             },
                             modifier = Modifier.weight(1f)
                         )
@@ -466,12 +459,8 @@ fun AccountsScreen(
 
                                         OutlinedButton(
                                             onClick = {
-                                                if (accountsWithBalances.size >= 10) {
-                                                    showAccountLimitDialog = true
-                                                } else {
-                                                    viewModel.restoreAccount(hiddenAcc.id)
-                                                    Toast.makeText(context, "${hiddenAcc.name} restored", Toast.LENGTH_SHORT).show()
-                                                }
+                                                viewModel.restoreAccount(hiddenAcc.id)
+                                                Toast.makeText(context, "${hiddenAcc.name} restored", Toast.LENGTH_SHORT).show()
                                             },
                                             shape = RoundedCornerShape(ZincSoftCornerRadius),
                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
@@ -529,7 +518,7 @@ fun AccountsScreen(
                 }
             },
             onSoftDelete = { accountId ->
-                scope.launch {
+                scope.launch(Dispatchers.Main) {
                     val count = viewModel.getTransactionCountForAccount(accountId)
                     if (count > 0) {
                         showDeleteBlockedDialog = accountId

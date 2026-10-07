@@ -74,11 +74,20 @@ interface TransactionDao {
 
     @Query("""
         SELECT 
-            COALESCE(SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END), 0) AS totalIncome,
-            COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END), 0) AS totalExpense
-        FROM transactions
-        WHERE timestamp >= :startTime AND timestamp <= :endTime
-          AND type IN ('INCOME', 'EXPENSE')
+            COALESCE(SUM(CASE WHEN t.type = 'INCOME' THEN t.amount ELSE 0 END), 0) AS totalIncome,
+            COALESCE(SUM(
+                CASE 
+                    WHEN t.isAdjustment = 1 THEN 0
+                    WHEN t.type = 'EXPENSE' THEN t.amount 
+                    WHEN t.type = 'INSTALLMENT' THEN t.amount
+                    WHEN t.type = 'TRANSFER' AND toAcc.type = 'BILL' THEN t.amount
+                    ELSE 0 
+                END
+            ), 0) AS totalExpense
+        FROM transactions t
+        LEFT JOIN accounts toAcc ON t.toAccountId = toAcc.id
+        WHERE t.timestamp >= :startTime AND t.timestamp <= :endTime
+          AND (t.type IN ('INCOME', 'EXPENSE', 'INSTALLMENT') OR (t.type = 'TRANSFER' AND toAcc.type = 'BILL'))
     """)
     fun getMonthlyTotals(startTime: Long, endTime: Long): Flow<MonthlyTotals>
 

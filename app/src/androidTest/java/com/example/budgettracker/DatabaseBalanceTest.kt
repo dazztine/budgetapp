@@ -7,7 +7,6 @@ import com.example.budgettracker.data.local.AppDatabase
 import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.AccountType
-import com.example.budgettracker.data.model.AdjustmentDirection
 import com.example.budgettracker.data.model.TransactionType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking

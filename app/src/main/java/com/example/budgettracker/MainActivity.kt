@@ -38,7 +38,8 @@ class MainActivity : ComponentActivity() {
             loanBillingCycleDao = db.loanBillingCycleDao(),
             customCategoryDao = db.customCategoryDao(),
             recurringBillDao = db.recurringBillDao(),
-            creditDetailsDao = db.creditDetailsDao()
+            creditDetailsDao = db.creditDetailsDao(),
+            budgetDao = db.budgetDao()
         )
 
         val dashboardViewModel = DashboardViewModel(repository, appPreferences = appPreferences)
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
         val quickParseViewModel = QuickParseViewModel(repository)
         val transactionHistoryViewModel = TransactionHistoryViewModel(repository)
         val reportsViewModel = com.example.budgettracker.ui.reports.ReportsViewModel(repository, appPreferences = appPreferences)
+        val planViewModel = com.example.budgettracker.ui.plan.PlanViewModel(repository)
 
         setContent {
             val currentTheme by themePreferences.themeSetting.collectAsState()
@@ -59,6 +61,7 @@ class MainActivity : ComponentActivity() {
                         quickParseViewModel = quickParseViewModel,
                         transactionHistoryViewModel = transactionHistoryViewModel,
                         reportsViewModel = reportsViewModel,
+                        planViewModel = planViewModel,
                         themePreferences = themePreferences
                     )
                 }

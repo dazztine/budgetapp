@@ -166,4 +166,27 @@ class SingleTransactionParserTest {
         org.junit.Assert.assertNull("Account should be null when unmatched", result.accountName)
         assertEquals("Maribank", result.title)
     }
+
+    @Test
+    fun testKMWithWhitespaceMultipliersAndRounding() {
+        val (kAmt, _) = com.example.budgettracker.parser.ParserUtils.parseAmountCentavos("2.5k")
+        assertEquals(250_000L, kAmt)
+
+        val (kSpaceAmt, _) = com.example.budgettracker.parser.ParserUtils.parseAmountCentavos("50 k")
+        assertEquals(5_000_000L, kSpaceAmt)
+
+        val (mAmt, _) = com.example.budgettracker.parser.ParserUtils.parseAmountCentavos("1.5M")
+        assertEquals(150_000_000L, mAmt)
+
+        val (mSpaceAmt, _) = com.example.budgettracker.parser.ParserUtils.parseAmountCentavos("2 m")
+        assertEquals(200_000_000L, mSpaceAmt)
+
+        val sentence1 = "lunch 2.5k gcash"
+        val res1 = SingleTransactionParser.parse(sentence1, knownAccounts)
+        assertEquals(250_000L, res1.amountCentavos)
+
+        val sentence2 = "sahod 50 k bdo"
+        val res2 = SingleTransactionParser.parse(sentence2, knownAccounts)
+        assertEquals(5_000_000L, res2.amountCentavos)
+    }
 }

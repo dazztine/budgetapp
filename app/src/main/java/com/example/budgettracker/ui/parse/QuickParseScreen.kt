@@ -257,12 +257,8 @@ fun QuickParseScreen(
                             viewModel.confirmAndSaveSingleTransaction(tx, accId, toAccId, onSuccess = onNavigateBack)
                         },
                         onAddNewAccount = { candidateName ->
-                            if (activeAccounts.size >= 10) {
-                                showAccountLimitDialog = true
-                            } else {
-                                candidateAccountToCreate = AccountEntity(name = candidateName, type = AccountType.BANK)
-                                showCreateAccountDialog = true
-                            }
+                            candidateAccountToCreate = AccountEntity(name = candidateName, type = AccountType.BANK)
+                            showCreateAccountDialog = true
                         }
                     )
                 }
@@ -270,11 +266,7 @@ fun QuickParseScreen(
                     BatchAccountsPreviewList(
                         parsedAccounts = state.accounts,
                         onConfirmSaveAll = { accountsList ->
-                            if (activeAccounts.size + accountsList.size > 10) {
-                                showAccountLimitDialog = true
-                            } else {
-                                viewModel.confirmAndSaveBatchAccounts(accountsList, onSuccess = onNavigateBack)
-                            }
+                            viewModel.confirmAndSaveBatchAccounts(accountsList, onSuccess = onNavigateBack)
                         }
                     )
                 }

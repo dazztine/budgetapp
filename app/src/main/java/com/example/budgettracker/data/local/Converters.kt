@@ -2,6 +2,7 @@ package com.example.budgettracker.data.local
 
 import androidx.room.TypeConverter
 import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.data.model.AssetTrend
 import com.example.budgettracker.data.model.TransactionType
 
 class Converters {
@@ -23,4 +24,16 @@ class Converters {
     @TypeConverter
     fun toBillAmountType(value: String?): com.example.budgettracker.data.local.entity.BillAmountType? =
         value?.let { com.example.budgettracker.data.local.entity.BillAmountType.valueOf(it) }
+
+    @TypeConverter
+    fun fromAssetTrend(value: AssetTrend?): String? = value?.name
+
+    @TypeConverter
+    fun toAssetTrend(value: String?): AssetTrend? = value?.let {
+        try {
+            AssetTrend.valueOf(it)
+        } catch (_: IllegalArgumentException) {
+            AssetTrend.NEUTRAL
+        }
+    }
 }

@@ -26,6 +26,8 @@ import com.example.budgettracker.data.local.entity.LoanBillingCycleEntity
 import com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 
+import com.example.budgettracker.data.local.dao.BudgetDao
+import com.example.budgettracker.data.local.entity.BudgetEntity
 import com.example.budgettracker.data.local.dao.RecurringBillDao
 import com.example.budgettracker.data.local.entity.RecurringBillEntity
 
@@ -40,9 +42,10 @@ import com.example.budgettracker.data.local.entity.RecurringBillEntity
         LoanBillingCycleEntity::class,
         CustomCategoryEntity::class,
         RecurringBillEntity::class,
-        CreditAccountDetailsEntity::class
+        CreditAccountDetailsEntity::class,
+        BudgetEntity::class
     ],
-    version = 7,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -58,6 +61,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun customCategoryDao(): CustomCategoryDao
     abstract fun recurringBillDao(): RecurringBillDao
     abstract fun creditDetailsDao(): CreditDetailsDao
+    abstract fun budgetDao(): BudgetDao
 
     companion object {
         @Volatile
@@ -266,13 +270,46 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `bill_account_details` ADD COLUMN `recurrence` TEXT NOT NULL DEFAULT 'MONTHLY'")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Add assetTrend to accounts
+                db.execSQL("ALTER TABLE `accounts` ADD COLUMN `assetTrend` TEXT NOT NULL DEFAULT 'NEUTRAL'")
+
+                // 2. Add savings goals metadata to savings_account_details
+                db.execSQL("ALTER TABLE `savings_account_details` ADD COLUMN `targetDate` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `savings_account_details` ADD COLUMN `iconPreset` TEXT NOT NULL DEFAULT 'savings'")
+                db.execSQL("ALTER TABLE `savings_account_details` ADD COLUMN `isGoal` INTEGER NOT NULL DEFAULT 0")
+
+                // 3. Create budgets table and unique index
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `budgets` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `category` TEXT DEFAULT NULL,
+                        `amount` INTEGER NOT NULL,
+                        `period` TEXT NOT NULL DEFAULT 'MONTHLY',
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_budgets_category_period` ON `budgets` (`category`, `period`)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "budget_tracker.db"
-                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

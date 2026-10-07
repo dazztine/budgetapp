@@ -7,10 +7,14 @@ import com.example.budgettracker.data.local.entity.AccountWithBalance
 import com.example.budgettracker.data.local.entity.CustomCategoryEntity
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
+import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.BillAmountType
+import com.example.budgettracker.data.model.AccountType
 import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.data.repository.BudgetRepository
 import com.example.budgettracker.ui.transaction.components.CategoryItem
 import com.example.budgettracker.util.CurrencyUtils
+import java.time.LocalDate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -91,6 +95,21 @@ class TransactionViewModel(
 
     private val _isEditing = MutableStateFlow(false)
     val isEditing: StateFlow<Boolean> = _isEditing.asStateFlow()
+
+    private val _isRecurring = MutableStateFlow(false)
+    val isRecurring: StateFlow<Boolean> = _isRecurring.asStateFlow()
+
+    private val _recurringBillName = MutableStateFlow("")
+    val recurringBillName: StateFlow<String> = _recurringBillName.asStateFlow()
+
+    private val _recurringFrequency = MutableStateFlow("MONTHLY")
+    val recurringFrequency: StateFlow<String> = _recurringFrequency.asStateFlow()
+
+    private val _recurringDueDay = MutableStateFlow(LocalDate.now().dayOfMonth)
+    val recurringDueDay: StateFlow<Int> = _recurringDueDay.asStateFlow()
+
+    private val _recurringDueMonth = MutableStateFlow(LocalDate.now().monthValue)
+    val recurringDueMonth: StateFlow<Int> = _recurringDueMonth.asStateFlow()
 
     // Calculator Expression Evaluation
     private var pendingOperator: String? = null
@@ -423,9 +442,27 @@ class TransactionViewModel(
         _timestamp.value = timeMillis
     }
 
+    fun setRecurring(enabled: Boolean) {
+        _isRecurring.value = enabled
+        if (enabled && _recurringBillName.value.isBlank()) {
+            _recurringBillName.value = _titleInput.value.trim()
+        }
+    }
+
+    fun configureRecurring(billName: String, frequency: String, dueDay: Int, dueMonth: Int) {
+        _isRecurring.value = true
+        _recurringBillName.value = billName
+        _recurringFrequency.value = frequency
+        _recurringDueDay.value = dueDay
+        _recurringDueMonth.value = dueMonth
+    }
+
+    private var linkedCycleId: Long? = null
+
     fun loadTransactionForEdit(transaction: TransactionEntity) {
         _editingTransactionId.value = transaction.id
         _isEditing.value = transaction.id != 0L
+        _isRecurring.value = false
         _selectedType.value = transaction.type
         _selectedAccountId.value = transaction.accountId
         _selectedToAccountId.value = transaction.toAccountId
@@ -437,6 +474,15 @@ class TransactionViewModel(
         val pesos = transaction.amount / 100
         val cents = transaction.amount % 100
         _amountInput.value = if (cents > 0) String.format(java.util.Locale.US, "%d.%02d", pesos, cents) else pesos.toString()
+
+        if (transaction.installmentPlanId != null) {
+            viewModelScope.launch(ioDispatcher) {
+                val plan = repository.getInstallmentPlanById(transaction.installmentPlanId)
+                if (plan != null) {
+                    _totalInstallmentsInput.value = plan.totalInstallments.toString()
+                }
+            }
+        }
     }
 
     fun saveTransaction(onSuccess: () -> Unit = {}) {
@@ -466,8 +512,36 @@ class TransactionViewModel(
         }
 
         val title = _titleInput.value.trim().ifEmpty { type.name }
-        val category = _categoryInput.value.trim().ifEmpty { "General" }
+        val rawCategory = _categoryInput.value.trim()
+        val destAccount = if (type == TransactionType.TRANSFER && toAccountId != null) {
+            accounts.value.find { it.id == toAccountId }
+        } else null
+        val category = if (type == TransactionType.TRANSFER && destAccount?.type == com.example.budgettracker.data.model.AccountType.BILL) {
+            val candidateTx = TransactionEntity(
+                id = 0L,
+                type = type,
+                accountId = accountId,
+                toAccountId = toAccountId,
+                amount = centavos,
+                category = rawCategory,
+                title = title,
+                timestamp = _timestamp.value
+            )
+            com.example.budgettracker.domain.BudgetPaceCalculator.effectiveSpendingCategory(
+                candidateTx,
+                com.example.budgettracker.data.model.AccountType.BILL
+            )
+        } else {
+            rawCategory.ifEmpty { "General" }
+        }
         val currentEditId = _editingTransactionId.value
+
+        val baseNote = _noteInput.value.trim()
+        val finalNote = if (linkedCycleId != null && !baseNote.contains("[cycle:$linkedCycleId]")) {
+            if (baseNote.isNotEmpty()) "$baseNote [cycle:$linkedCycleId]" else "[cycle:$linkedCycleId]"
+        } else {
+            baseNote.ifEmpty { null }
+        }
 
         val transaction = TransactionEntity(
             id = currentEditId ?: 0L,
@@ -478,16 +552,14 @@ class TransactionViewModel(
             isAdjustment = false,
             category = category,
             title = title,
-            note = _noteInput.value.trim().ifEmpty { null },
+            note = finalNote,
             timestamp = _timestamp.value
         )
 
         viewModelScope.launch(ioDispatcher) {
             try {
                 if (currentEditId == null || currentEditId == 0L) {
-                    repository.insertTransaction(transaction)
-
-                    // If INSTALLMENT type, automatically create InstallmentPlanEntity
+                    // If INSTALLMENT type, automatically create InstallmentPlanEntity (which handles linked transaction creation)
                     if (type == TransactionType.INSTALLMENT) {
                         val numInstallments = _totalInstallmentsInput.value.toIntOrNull() ?: 6
                         val monthly = centavos / maxOf(1, numInstallments)
@@ -503,9 +575,101 @@ class TransactionViewModel(
                             purchaseDate = _timestamp.value
                         )
                         repository.insertInstallmentPlan(plan)
+                    } else {
+                        repository.insertTransaction(transaction)
+                    }
+
+                    if (type == TransactionType.EXPENSE && _isRecurring.value) {
+                        val rawBillName = _recurringBillName.value.trim().ifEmpty { title }
+                        val freq = _recurringFrequency.value.uppercase()
+                        val dueDay = _recurringDueDay.value
+                        val dueMonth = _recurringDueMonth.value
+                        val formattedDueDays = when (freq) {
+                            "YEARLY" -> "$dueMonth-$dueDay"
+                            "DAILY" -> "1"
+                            else -> "$dueDay"
+                        }
+
+                        val allAccounts = repository.getAllAccountsDirect()
+                        val existingBill = allAccounts.find { it.type == AccountType.BILL && it.name.equals(rawBillName, ignoreCase = true) }
+
+                        val billAccountId = if (existingBill != null) {
+                            if (!existingBill.isActive) {
+                                repository.updateAccount(existingBill.copy(isActive = true))
+                            }
+                            val billDetails = BillAccountDetailsEntity(
+                                accountId = existingBill.id,
+                                dueDays = formattedDueDays,
+                                amountDue = centavos,
+                                amountType = BillAmountType.FIXED,
+                                recurrence = freq,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            repository.insertBillDetails(billDetails)
+                            existingBill.id
+                        } else {
+                            val lowerName = rawBillName.lowercase()
+                            val presetId = when {
+                                lowerName.contains("meralco") -> "meralco"
+                                lowerName.contains("maynilad") -> "maynilad"
+                                lowerName.contains("pldt") -> "pldt"
+                                else -> null
+                            }
+                            val billAccount = AccountEntity(
+                                name = rawBillName,
+                                type = AccountType.BILL,
+                                presetId = presetId,
+                                initialBalance = 0L,
+                                isActive = true
+                            )
+                            val newId = repository.insertAccount(billAccount)
+                            val billDetails = BillAccountDetailsEntity(
+                                accountId = newId,
+                                dueDays = formattedDueDays,
+                                amountDue = centavos,
+                                amountType = BillAmountType.FIXED,
+                                recurrence = freq
+                            )
+                            repository.insertBillDetails(billDetails)
+                            newId
+                        }
+                        repository.ensurePendingCyclesForAccount(billAccountId)
                     }
                 } else {
-                    repository.updateTransaction(transaction)
+                    val existingTx = repository.getTransactionById(currentEditId)
+                    val planId = existingTx?.installmentPlanId
+                    val plan = if (planId != null) repository.getInstallmentPlanById(planId) else null
+
+                    val updatedTransaction = transaction.copy(
+                        installmentPlanId = planId
+                    )
+                    repository.updateTransaction(updatedTransaction)
+
+                    if (plan != null && existingTx != null) {
+                        if (existingTx.type == TransactionType.INSTALLMENT) {
+                            val diff = centavos - existingTx.amount
+                            val newRemaining = maxOf(0L, plan.remainingBalance + diff)
+                            val numInstallments = _totalInstallmentsInput.value.toIntOrNull() ?: plan.totalInstallments
+                            val updatedPlan = plan.copy(
+                                title = title,
+                                category = category,
+                                totalPurchaseAmount = centavos,
+                                totalInstallments = numInstallments,
+                                remainingBalance = newRemaining,
+                                monthlyPaymentAmount = centavos / maxOf(1, numInstallments),
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            repository.updateInstallmentPlan(updatedPlan)
+                        } else {
+                            val diff = centavos - existingTx.amount
+                            val newRemaining = maxOf(0L, plan.remainingBalance - diff)
+                            val updatedPlan = plan.copy(
+                                remainingBalance = newRemaining,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            repository.updateInstallmentPlan(updatedPlan)
+                        }
+                    }
                 }
                 _saveState.value = SaveResult.Success
                 val callback = onTransactionSavedCallback
@@ -527,12 +691,14 @@ class TransactionViewModel(
     fun prepareForTransfer(
         toAccountId: Long,
         amountCentavos: Long? = null,
-        category: String = "Bill Payment",
+        category: String = com.example.budgettracker.domain.BudgetPaceCalculator.CANONICAL_BILLS_CATEGORY,
         title: String = "Bill Payment",
+        cycleId: Long? = null,
         onConfirmed: (() -> Unit)? = null,
         onConfirmedWithAmount: ((Long) -> Unit)? = null
     ) {
         resetFormForNextEntry()
+        linkedCycleId = cycleId
         _selectedType.value = TransactionType.TRANSFER
         _selectedToAccountId.value = toAccountId
         _selectedAccountId.value = null
@@ -584,7 +750,13 @@ class TransactionViewModel(
         _saveState.value = SaveResult.Idle
         _editingTransactionId.value = null
         _isEditing.value = false
+        _isRecurring.value = false
+        _recurringBillName.value = ""
+        _recurringFrequency.value = "MONTHLY"
+        _recurringDueDay.value = LocalDate.now().dayOfMonth
+        _recurringDueMonth.value = LocalDate.now().monthValue
         _isToAccountLocked.value = false
+        linkedCycleId = null
         pendingOperator = null
         storedOperand = null
         onTransactionSavedCallback = null

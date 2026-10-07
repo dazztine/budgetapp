@@ -593,22 +593,28 @@ private fun CreditAccountDetailContent(
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
+                            val owedAmount = account.currentBalance
+                            val isOverpaid = owedAmount > 0L
                             Text(
-                                text = "What you owe",
+                                text = if (isOverpaid) "Credit balance" else "What you owe",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            val owedAmount = account.currentBalance
                             val owedFormatted = when {
                                 !isBalanceVisible -> "₱ ••••••"
                                 owedAmount < 0L -> CurrencyUtils.formatCentavosToPesos(owedAmount)
+                                isOverpaid -> "+${CurrencyUtils.formatCentavosToPesos(owedAmount)}"
                                 else -> "₱0.00"
                             }
                             Text(
                                 text = owedFormatted,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (owedAmount < 0L) Color(0xFFF87171) else MaterialTheme.colorScheme.onSurface
+                                color = when {
+                                    owedAmount < 0L -> Color(0xFFF87171)
+                                    isOverpaid -> Color(0xFF7FB88F)
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                }
                             )
                         }
                     }

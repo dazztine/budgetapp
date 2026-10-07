@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -58,7 +59,8 @@ class TransactionViewModelTest {
             database.loanDetailsDao(),
             database.installmentPlanDao(),
             database.savingsDetailsDao(),
-            database.billDetailsDao()
+            database.billDetailsDao(),
+            database.loanBillingCycleDao()
         )
         viewModel = TransactionViewModel(repository, testDispatcher)
 
@@ -468,5 +470,147 @@ class TransactionViewModelTest {
 
         viewModel.resetFormForNextEntry()
         assertFalse(viewModel.isToAccountLocked.value)
+    }
+
+    @Test
+    fun testSaveRecurringExpenseMonthlyCreatesBillAccountAndDetails() = runBlocking {
+        viewModel.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        viewModel.onDigitInput("1899")
+        viewModel.setTitle("PLDT Home Fiber")
+        viewModel.setCategory("Utilities")
+
+        // Configure as monthly recurring bill on the 15th
+        viewModel.configureRecurring(
+            billName = "PLDT Home Fiber",
+            frequency = "MONTHLY",
+            dueDay = 15,
+            dueMonth = 1
+        )
+
+        val latch = CountDownLatch(1)
+        viewModel.saveTransaction { latch.countDown() }
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+
+        // 1. Verify expense transaction was created
+        val txs = repository.allTransactions.first()
+        assertEquals(1, txs.size)
+        assertEquals(TransactionType.EXPENSE, txs[0].type)
+        assertEquals(189900L, txs[0].amount)
+        assertEquals(account1Id, txs[0].accountId)
+
+        // 2. Verify new BILL account was created with preset 'pldt'
+        val accounts = repository.allAccounts.first()
+        val billAccount = accounts.find { it.type == AccountType.BILL }
+        assertNotNull(billAccount)
+        assertEquals("PLDT Home Fiber", billAccount!!.name)
+        assertEquals("pldt", billAccount.presetId)
+
+        // 3. Verify BillAccountDetailsEntity was created with recurrence MONTHLY
+        val billDetails = repository.getBillDetailsByAccountId(billAccount.id)
+        assertNotNull(billDetails)
+        assertEquals("15", billDetails!!.dueDays)
+        assertEquals(189900L, billDetails.amountDue)
+        assertEquals("MONTHLY", billDetails.recurrence)
+
+        // 4. Verify billing cycle is scheduled
+        val cycles = database.loanBillingCycleDao().getPendingCyclesDirect(billAccount.id)
+        assertEquals(1, cycles.size)
+        assertEquals(189900L, cycles[0].amountDue)
+        assertFalse(cycles[0].isPaid)
+    }
+
+    @Test
+    fun testSaveRecurringExpenseDailyAndYearlyFrequencies() = runBlocking {
+        // Test Daily
+        viewModel.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        viewModel.onDigitInput("50")
+        viewModel.setTitle("Daily Coffee")
+        viewModel.configureRecurring(
+            billName = "Daily Coffee",
+            frequency = "DAILY",
+            dueDay = 1,
+            dueMonth = 1
+        )
+        val latch1 = CountDownLatch(1)
+        viewModel.saveTransaction { latch1.countDown() }
+        assertTrue(latch1.await(2, TimeUnit.SECONDS))
+
+        val accounts1 = repository.allAccounts.first()
+        val dailyBill = accounts1.find { it.name == "Daily Coffee" }
+        assertNotNull(dailyBill)
+        val dailyDetails = repository.getBillDetailsByAccountId(dailyBill!!.id)
+        assertNotNull(dailyDetails)
+        assertEquals("DAILY", dailyDetails!!.recurrence)
+
+        val dailyCycles = database.loanBillingCycleDao().getPendingCyclesDirect(dailyBill.id)
+        assertEquals(1, dailyCycles.size)
+        assertEquals(5000L, dailyCycles[0].amountDue)
+
+        // Test Yearly
+        viewModel.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        viewModel.onDigitInput("4500")
+        viewModel.setTitle("Car Insurance")
+        viewModel.configureRecurring(
+            billName = "Car Insurance",
+            frequency = "YEARLY",
+            dueDay = 25,
+            dueMonth = 11
+        )
+        val latch2 = CountDownLatch(1)
+        viewModel.saveTransaction { latch2.countDown() }
+        assertTrue(latch2.await(2, TimeUnit.SECONDS))
+
+        val accounts2 = repository.allAccounts.first()
+        val yearlyBill = accounts2.find { it.name == "Car Insurance" }
+        assertNotNull(yearlyBill)
+        val yearlyDetails = repository.getBillDetailsByAccountId(yearlyBill!!.id)
+        assertNotNull(yearlyDetails)
+        assertEquals("YEARLY", yearlyDetails!!.recurrence)
+        assertEquals("11-25", yearlyDetails.dueDays)
+
+        val yearlyCycles = database.loanBillingCycleDao().getPendingCyclesDirect(yearlyBill.id)
+        assertEquals(1, yearlyCycles.size)
+        assertEquals(450000L, yearlyCycles[0].amountDue)
+    }
+
+    @Test
+    fun testSaveRecurringExpenseUpdatesExistingBillAccountWithoutDuplicate() = runBlocking {
+        // Pre-create existing Meralco bill account
+        val billId = repository.insertAccount(
+            AccountEntity(name = "Meralco", type = AccountType.BILL, presetId = "meralco")
+        )
+        repository.insertBillDetails(
+            com.example.budgettracker.data.local.entity.BillAccountDetailsEntity(
+                accountId = billId,
+                dueDays = "10",
+                amountDue = 200000L,
+                recurrence = "MONTHLY"
+            )
+        )
+
+        // User logs an expense of 2800 for "Meralco" with recurring due day 12
+        viewModel.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        viewModel.onDigitInput("2800")
+        viewModel.setTitle("Meralco")
+        viewModel.configureRecurring(
+            billName = "Meralco",
+            frequency = "MONTHLY",
+            dueDay = 12,
+            dueMonth = 1
+        )
+        val latch = CountDownLatch(1)
+        viewModel.saveTransaction { latch.countDown() }
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+
+        // Verify only 1 bill account exists (no duplicate)
+        val billAccounts = repository.allAccounts.first().filter { it.type == AccountType.BILL }
+        assertEquals(1, billAccounts.size)
+        assertEquals(billId, billAccounts[0].id)
+
+        // Verify bill details were updated to 2800.00 and day 12
+        val updatedDetails = repository.getBillDetailsByAccountId(billId)
+        assertNotNull(updatedDetails)
+        assertEquals("12", updatedDetails!!.dueDays)
+        assertEquals(280000L, updatedDetails.amountDue)
     }
 }

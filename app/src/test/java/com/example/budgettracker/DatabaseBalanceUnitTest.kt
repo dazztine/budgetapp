@@ -343,6 +343,108 @@ class DatabaseBalanceUnitTest {
     }
 
     @Test
+    fun testMonthlyTotalsExactComposition_expenseInstallmentBillTransferAdjustmentAndSavingsTransfer() = runBlocking {
+        val liquidId = accountDao.insert(
+            AccountEntity(name = "BPI Current", type = AccountType.BANK, initialBalance = 100_000_00L)
+        )
+        val billId = accountDao.insert(
+            AccountEntity(name = "Meralco Bill", type = AccountType.BILL, initialBalance = 0L)
+        )
+        val savingsId = accountDao.insert(
+            AccountEntity(name = "Emergency Fund", type = AccountType.SAVINGS, initialBalance = 10_000_00L)
+        )
+
+        val windowStart = 1_000_000L
+        val windowEnd = 2_000_000L
+        val midTime = 1_500_000L
+
+        // 1. Valid INCOME: ₱50,000.00
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.INCOME,
+                amount = 50_000_00L,
+                accountId = liquidId,
+                category = "Salary",
+                title = "Monthly Paycheck",
+                timestamp = midTime
+            )
+        )
+
+        // 2. Standard EXPENSE: ₱3,500.50
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 3_500_50L,
+                accountId = liquidId,
+                category = "Groceries",
+                title = "Supermarket",
+                timestamp = midTime
+            )
+        )
+
+        // 3. INSTALLMENT: ₱2,400.00 (BNPL installment payment)
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.INSTALLMENT,
+                amount = 2_400_00L,
+                accountId = liquidId,
+                category = "Electronics",
+                title = "SPayLater Installment 1/3",
+                timestamp = midTime
+            )
+        )
+
+        // 4. TRANSFER to BILL account: ₱4,150.25 (Meralco bill payment)
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 4_150_25L,
+                accountId = liquidId,
+                toAccountId = billId,
+                category = "Bills & Utilities",
+                title = "Pay Meralco",
+                timestamp = midTime
+            )
+        )
+
+        // 5. ADJUSTMENT (even if EXPENSE type): ₱500.00 - MUST BE EXCLUDED from income/expense
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 500_00L,
+                accountId = liquidId,
+                category = "General",
+                title = "Balance Correction",
+                isAdjustment = true,
+                timestamp = midTime
+            )
+        )
+
+        // 6. TRANSFER to SAVINGS account: ₱10_000.00 - MUST BE EXCLUDED from income/expense
+        transactionDao.insert(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 10_000_00L,
+                accountId = liquidId,
+                toAccountId = savingsId,
+                category = "Savings Transfer",
+                title = "Deposit to EF",
+                timestamp = midTime
+            )
+        )
+
+        val totals = transactionDao.getMonthlyTotals(windowStart, windowEnd).first()
+
+        // Exact centavos:
+        // totalIncome = 50,000.00 = 5_000_000L
+        // totalExpense = 3,500.50 (EXPENSE) + 2,400.00 (INSTALLMENT) + 4,150.25 (TRANSFER to BILL)
+        //              = 10,050.75 = 1_005_075L
+        assertEquals(5_000_000L, totals.totalIncome)
+        assertEquals(1_005_075L, totals.totalExpense)
+        assertEquals(3_994_925L, totals.netSavings) // 5_000_000 - 1_005_075 = 3_994_925L
+    }
+
+    @Test
     fun testAutocompleteScopedPerTransactionType() = runBlocking {
         val accId = accountDao.insert(
             AccountEntity(name = "Cash", type = AccountType.CASH, initialBalance = 5_000L)
@@ -1418,7 +1520,7 @@ class DatabaseBalanceUnitTest {
         val cycle = repository.getPendingBillingCycles(creditId).first().first()
 
         // Pay in full
-        val result = repository.recordBillingCyclePayment(cycle.id, 4_000_00L)
+        val result = repository.recordBillingCyclePayment(cycle.id, 4_000_00L, today = today)
         assertTrue(result is CyclePaymentResult.PaidInFull)
 
         // Make another purchase for next cycle
@@ -1699,6 +1801,91 @@ class DatabaseBalanceUnitTest {
         assertEquals(1, pending.size)
         assertEquals(1_200_00L, pending[0].amountDue)
         assertFalse(pending[0].isManualOverride)
+    }
+
+    @Test
+    fun testBillingCycleOverpaymentCarriesForwardToNextCycle() = runBlocking {
+        val accountId = repository.insertAccount(
+            AccountEntity(
+                name = "Test Loan",
+                type = AccountType.LOAN,
+                initialBalance = 0L
+            )
+        )
+        repository.insertLoanDetails(
+            LoanAccountDetailsEntity(
+                accountId = accountId,
+                dueDays = "15",
+                minimumAmountDue = 5_000_00L,
+                totalRemainingBalance = 50_000_00L
+            )
+        )
+
+        // Initial pending cycle
+        val initialCycles = repository.getPendingCyclesDirect(accountId)
+        assertEquals(1, initialCycles.size)
+        val cycleId = initialCycles[0].id
+        assertEquals(5_000_00L, initialCycles[0].amountDue)
+
+        // Pay 6,000.00 (1,000.00 surplus)
+        val payResult = repository.recordBillingCyclePayment(cycleId, 6_000_00L)
+        assertTrue(payResult is CyclePaymentResult.PaidInFull)
+        assertEquals(1_000_00L, (payResult as CyclePaymentResult.PaidInFull).overpaymentAmount)
+
+        // The newly generated cycle should have its amount due reduced by overpayment: 5000 - 1000 = 4000
+        val pendingAfter = repository.getPendingCyclesDirect(accountId)
+        assertEquals(1, pendingAfter.size)
+        assertEquals(4_000_00L, pendingAfter[0].amountDue)
+    }
+
+    @Test
+    fun testDeletePaymentTransactionReopensBillingCycle() = runBlocking {
+        val accountId = repository.insertAccount(
+            AccountEntity(
+                name = "Converge",
+                type = AccountType.BILL,
+                initialBalance = 0L
+            )
+        )
+        repository.insertBillDetails(
+            BillAccountDetailsEntity(
+                accountId = accountId,
+                dueDays = "20",
+                amountDue = 1_500_00L,
+                amountType = BillAmountType.FIXED
+            )
+        )
+
+        val pending = repository.getPendingCyclesDirect(accountId)
+        assertEquals(1, pending.size)
+        val cycle = pending[0]
+
+        // Record cycle payment
+        repository.recordBillingCyclePayment(cycle.id, 1_500_00L)
+        var cycleCheck = repository.getBillingCycleById(cycle.id)!!
+        assertTrue(cycleCheck.isPaid)
+        assertNotNull(cycleCheck.paidDate)
+
+        // Insert payment transaction with cycle tag
+        val txId = repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.TRANSFER,
+                amount = 1_500_00L,
+                accountId = 1L,
+                toAccountId = accountId,
+                category = "Bill Payment",
+                title = "Converge Bill",
+                timestamp = System.currentTimeMillis(),
+                note = "[cycle:${cycle.id}]"
+            )
+        )
+        val tx = repository.getTransactionById(txId)!!
+
+        // Deleting transaction must reopen the cycle
+        repository.deleteTransaction(tx)
+        cycleCheck = repository.getBillingCycleById(cycle.id)!!
+        assertFalse("Cycle must be reopened after transaction deletion", cycleCheck.isPaid)
+        assertNull("Paid date must be cleared", cycleCheck.paidDate)
     }
 }
 

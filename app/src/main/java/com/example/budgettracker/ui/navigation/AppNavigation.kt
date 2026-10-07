@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,23 +44,30 @@ fun AppNavigation(
     quickParseViewModel: QuickParseViewModel,
     transactionHistoryViewModel: TransactionHistoryViewModel,
     reportsViewModel: ReportsViewModel,
+    planViewModel: com.example.budgettracker.ui.plan.PlanViewModel,
     themePreferences: com.example.budgettracker.ui.theme.ThemePreferences? = null,
     modifier: Modifier = Modifier,
     initialTab: BottomTab = BottomTab.DASHBOARD
 ) {
     val context = LocalContext.current
-    var currentTab by remember { mutableStateOf(initialTab) }
+    var currentTab by rememberSaveable { mutableStateOf(initialTab) }
+    var previousTabBeforeSettings by rememberSaveable { mutableStateOf<BottomTab?>(null) }
     var showTransactionModal by remember { mutableStateOf(false) }
     var isHistoryVisible by remember { mutableStateOf(false) }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
 
     BackHandler(enabled = !showTransactionModal && !isHistoryVisible) {
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastBackPressTime < 2000L) {
-            (context as? Activity)?.finish()
+        if (currentTab == BottomTab.SETTINGS) {
+            currentTab = previousTabBeforeSettings ?: BottomTab.DASHBOARD
+            previousTabBeforeSettings = null
         } else {
-            lastBackPressTime = currentTime
-            Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBackPressTime < 2000L) {
+                (context as? Activity)?.finish()
+            } else {
+                lastBackPressTime = currentTime
+                Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -72,6 +80,7 @@ fun AppNavigation(
         transactionViewModel.prepareForTransfer(
             toAccountId = accountId,
             amountCentavos = amountCentavos,
+            cycleId = cycleId,
             onConfirmedWithAmount = { actualAmount ->
                 dashboardViewModel.recordCyclePayment(accountId, cycleId, actualAmount) { result ->
                     when (result) {
@@ -121,7 +130,10 @@ fun AppNavigation(
                 bottomBar = {
                     MainBottomNavigation(
                         currentTab = currentTab,
-                        onTabSelected = { currentTab = it }
+                        onTabSelected = {
+                            previousTabBeforeSettings = null
+                            currentTab = it
+                        }
                     )
                 }
             ) { innerPadding ->
@@ -140,7 +152,11 @@ fun AppNavigation(
                                 onNavigateToHistory = { isHistoryVisible = true },
                                 onEditTransaction = onEditTransaction,
                                 onPayBill = onPayBill,
-                                onLogTransactionForAccount = onLogTransactionForAccount
+                                onLogTransactionForAccount = onLogTransactionForAccount,
+                                onNavigateToSettings = {
+                                    previousTabBeforeSettings = BottomTab.DASHBOARD
+                                    currentTab = BottomTab.SETTINGS
+                                }
                             )
                         }
 
@@ -163,6 +179,30 @@ fun AppNavigation(
                                 onEditTransaction = onEditTransaction,
                                 onPayBill = onPayBill,
                                 onLogTransactionForAccount = onLogTransactionForAccount
+                            )
+                        }
+
+                        BottomTab.PLAN -> {
+                            com.example.budgettracker.ui.plan.PlanScreen(
+                                viewModel = planViewModel,
+                                onNavigateToSettings = {
+                                    previousTabBeforeSettings = BottomTab.PLAN
+                                    currentTab = BottomTab.SETTINGS
+                                },
+                                onPayBill = onPayBill,
+                                onNavigateToAccount = { accId ->
+                                    targetAccountIdForAccountsScreen = accId
+                                    targetScrollToPayForAccountsScreen = false
+                                    currentTab = BottomTab.ACCOUNTS
+                                },
+                                onDepositToGoal = { goalAccountId, goalName ->
+                                    transactionViewModel.prepareForTransfer(
+                                        toAccountId = goalAccountId,
+                                        category = "Savings Transfer",
+                                        title = "Deposit to $goalName"
+                                    )
+                                    showTransactionModal = true
+                                }
                             )
                         }
 

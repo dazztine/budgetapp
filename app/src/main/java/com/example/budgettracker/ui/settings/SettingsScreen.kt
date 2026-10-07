@@ -139,7 +139,9 @@ fun SettingsScreen(
                         val clip = ClipData.newPlainText("kwago_Export.csv", csvData)
                         clipboard.setPrimaryClip(clip)
 
-                        Toast.makeText(context, "CSV copied to clipboard (${transactions.size} records)", Toast.LENGTH_LONG).show()
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(context, "CSV copied to clipboard (${transactions.size} records)", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             )
@@ -185,9 +187,9 @@ fun SettingsScreen(
             val appVersion = remember {
                 try {
                     val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                    pInfo.versionName ?: "1.6.0"
+                    pInfo.versionName ?: "1.7.0"
                 } catch (e: Exception) {
-                    "1.6.0"
+                    "1.7.0"
                 }
             }
 

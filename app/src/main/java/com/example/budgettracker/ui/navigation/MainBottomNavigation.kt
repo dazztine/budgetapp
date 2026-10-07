@@ -15,9 +15,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.CropFree
@@ -28,13 +30,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class BottomTab(
     val label: String,
     val unselectedIcon: ImageVector,
-    val selectedIcon: ImageVector
+    val selectedIcon: ImageVector,
+    val isBottomBarDestination: Boolean = true
 ) {
     DASHBOARD("Dashboard", Icons.Outlined.Home, Icons.Filled.Home),
     SMART_PARSER("Smart Parser", Icons.Outlined.CropFree, Icons.Outlined.CropFree),
     ACCOUNTS("Accounts", Icons.Outlined.CreditCard, Icons.Outlined.CreditCard),
+    PLAN("Plan", Icons.Outlined.Assignment, Icons.Filled.Assignment),
     REPORTS("Reports", Icons.Outlined.BarChart, Icons.Filled.BarChart),
-    SETTINGS("Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
+    SETTINGS("Settings", Icons.Outlined.Settings, Icons.Filled.Settings, isBottomBarDestination = false)
 }
 
 @Composable
@@ -48,7 +52,7 @@ fun MainBottomNavigation(
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
-        BottomTab.entries.forEach { tab ->
+        BottomTab.entries.filter { it.isBottomBarDestination }.forEach { tab ->
             val selected = currentTab == tab
             NavigationBarItem(
                 selected = selected,

@@ -1,5 +1,7 @@
 package com.example.budgettracker.parser
 
+import kotlin.math.roundToLong
+
 object ParserUtils {
 
     val CLAUSE_SPLITTER = Regex(
@@ -12,7 +14,7 @@ object ParserUtils {
     )
 
     val AMOUNT_REGEX = Regex(
-        "(?:₱|(?i:\\bPHP\\b|\\bP(?=\\s*\\d)|\\+))\\s*([0-9]{1,3}(?:,[0-9]{3})+\\.[0-9]{1,2}|[0-9]{1,3}(?:,[0-9]{3})+|\\d+(?:\\.\\d+)?\\s*[kK]|[0-9]+\\.[0-9]{1,2}|[0-9]+)|\\b([0-9]{1,3}(?:,[0-9]{3})+\\.[0-9]{1,2}|[0-9]{1,3}(?:,[0-9]{3})+|\\d+(?:\\.\\d+)?\\s*[kK]|[0-9]+\\.[0-9]{1,2}|[0-9]+)(?!\\s*(?:months?|mos?|buwan))"
+        "(?:₱|(?i:\\bPHP\\b|\\bP(?=\\s*\\d)|\\+))\\s*([0-9]{1,3}(?:,[0-9]{3})+\\.[0-9]{1,2}|[0-9]{1,3}(?:,[0-9]{3})+|\\d+(?:\\.\\d+)?\\s*[kKmM]|[0-9]+\\.[0-9]{1,2}|[0-9]+)|\\b([0-9]{1,3}(?:,[0-9]{3})+\\.[0-9]{1,2}|[0-9]{1,3}(?:,[0-9]{3})+|\\d+(?:\\.\\d+)?\\s*[kKmM]|[0-9]+\\.[0-9]{1,2}|[0-9]+)(?!\\s*(?:months?|mos?|buwan))"
     )
 
     fun parseAmountCentavos(text: String): Pair<Long, String?> {
@@ -21,12 +23,19 @@ object ParserUtils {
         val numStr = amtMatch.groupValues[1].ifEmpty { amtMatch.groupValues[2] }
         val rawNum = numStr.replace(",", "").trim()
 
-        val centavos = if (rawNum.endsWith("k", ignoreCase = true)) {
-            val numPart = rawNum.dropLast(1).toDoubleOrNull() ?: 0.0
-            (numPart * 1000.0 * 100.0).toLong()
-        } else {
-            val numPart = rawNum.toDoubleOrNull() ?: 0.0
-            (numPart * 100.0).toLong()
+        val centavos = when {
+            rawNum.endsWith("k", ignoreCase = true) -> {
+                val numPart = rawNum.dropLast(1).trim().toDoubleOrNull() ?: 0.0
+                (numPart * 1000.0 * 100.0).roundToLong()
+            }
+            rawNum.endsWith("m", ignoreCase = true) -> {
+                val numPart = rawNum.dropLast(1).trim().toDoubleOrNull() ?: 0.0
+                (numPart * 1000000.0 * 100.0).roundToLong()
+            }
+            else -> {
+                val numPart = rawNum.toDoubleOrNull() ?: 0.0
+                (numPart * 100.0).roundToLong()
+            }
         }
 
         return Pair(centavos, matchedStr)

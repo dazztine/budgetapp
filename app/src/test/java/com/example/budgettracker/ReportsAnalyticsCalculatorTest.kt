@@ -115,6 +115,46 @@ class ReportsAnalyticsCalculatorTest {
     }
 
     @Test
+    fun testBillPaymentTransfersIncludedInExpenseReports() {
+        val (startTime, endTime) = ReportPeriod.THIS_MONTH.getTimeRange(baseDate, testZone)
+        val billAccountId = 10L
+        val regularAccountId = 2L
+
+        val txList = listOf(
+            // Regular expense
+            TransactionEntity(id = 1, type = TransactionType.EXPENSE, amount = 2000L, category = "Food", title = "Lunch", timestamp = startTime + 1000, accountId = 1),
+            // Transfer to BILL account (e.g. Meralco) -> should be counted as expense
+            TransactionEntity(id = 2, type = TransactionType.TRANSFER, amount = 3500L, category = "Electricity", title = "Meralco Bill", timestamp = startTime + 2000, accountId = 1, toAccountId = billAccountId),
+            // Regular transfer between asset accounts (GCash -> Bank) -> must NOT be counted as expense
+            TransactionEntity(id = 3, type = TransactionType.TRANSFER, amount = 5000L, category = "Transfer", title = "Cash In", timestamp = startTime + 3000, accountId = 1, toAccountId = regularAccountId),
+            // Income
+            TransactionEntity(id = 4, type = TransactionType.INCOME, amount = 10000L, category = "Salary", title = "Salary", timestamp = startTime + 4000, accountId = 1)
+        )
+
+        val billAccountIds = setOf(billAccountId)
+
+        // 1. Spending by Category
+        val (totalExpense, breakdown) = ReportsAnalyticsCalculator.calculateSpendingByCategory(
+            txList, startTime, endTime, billAccountIds = billAccountIds
+        )
+        // Total expense = 2000 (Food) + 3500 (Electricity bill) = 5500L
+        assertEquals(5500L, totalExpense)
+        assertEquals(2, breakdown.size)
+        val elecCategory = breakdown.find { it.category == "Electricity" }
+        assertNotNull(elecCategory)
+        assertEquals(3500L, elecCategory!!.amount)
+
+        // 2. Income vs Expense
+        val comparison = ReportsAnalyticsCalculator.calculateIncomeVsExpense(
+            txList, ReportPeriod.THIS_MONTH, baseDate, testZone, billAccountIds = billAccountIds
+        )
+        assertEquals(10000L, comparison.totalIncome)
+        assertEquals(5500L, comparison.totalExpense)
+        assertEquals(4500L, comparison.netAmount) // 10000 - 5500
+        assertTrue(comparison.isSaved)
+    }
+
+    @Test
     fun testNetWorthHistory_derivesHistoricalBalances() {
         val accounts = listOf(
             AccountWithBalance(

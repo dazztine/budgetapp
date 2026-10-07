@@ -7,6 +7,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Relation
 import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.data.model.AssetTrend
 import com.example.budgettracker.data.model.TransactionType
 
 @Entity(
@@ -25,6 +26,7 @@ data class AccountEntity(
     val isActive: Boolean = true,
     val includeInNetWorth: Boolean = (type != AccountType.BILL),
     val displayOrder: Int = 0,
+    val assetTrend: AssetTrend = AssetTrend.NEUTRAL,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -80,6 +82,9 @@ data class SavingsAccountDetailsEntity(
     val accountId: Long,
     val interestRate: Double? = null,
     val goalAmount: Long? = null,
+    val targetDate: Long? = null,
+    val iconPreset: String = "savings",
+    val isGoal: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -101,6 +106,7 @@ data class BillAccountDetailsEntity(
     val dueDays: String,
     val amountDue: Long? = null,
     val amountType: BillAmountType = BillAmountType.FIXED,
+    val recurrence: String = "MONTHLY",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {

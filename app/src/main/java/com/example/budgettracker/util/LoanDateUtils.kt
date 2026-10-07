@@ -82,4 +82,26 @@ object LoanDateUtils {
             else -> DueDateStatus.UPCOMING
         }
     }
+
+    /**
+     * Resolves the next upcoming due date for a daily recurring bill (tomorrow).
+     */
+    fun calculateNextDailyDueDate(today: LocalDate = LocalDate.now()): LocalDate = today.plusDays(1)
+
+    /**
+     * Resolves the next upcoming due date for a yearly recurring bill.
+     */
+    fun calculateNextYearlyDueDate(today: LocalDate = LocalDate.now(), month: Int, day: Int): LocalDate {
+        val clampedMonth = month.coerceIn(1, 12)
+        val maxDayThisYear = YearMonth.of(today.year, clampedMonth).lengthOfMonth()
+        val currentYearCandidate = LocalDate.of(today.year, clampedMonth, day.coerceIn(1, maxDayThisYear))
+
+        return if (currentYearCandidate.isBefore(today)) {
+            val nextYear = today.year + 1
+            val maxDayNextYear = YearMonth.of(nextYear, clampedMonth).lengthOfMonth()
+            LocalDate.of(nextYear, clampedMonth, day.coerceIn(1, maxDayNextYear))
+        } else {
+            currentYearCandidate
+        }
+    }
 }

@@ -25,7 +25,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import com.example.budgettracker.ui.transaction.components.CategorySelectionBottomSheet
+import com.example.budgettracker.ui.transaction.components.RecurringExpenseBottomSheet
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -100,10 +103,16 @@ fun ManualTransactionScreen(
     val categorySuggestions by viewModel.categorySuggestions.collectAsState()
     val customCategories by viewModel.customCategories.collectAsState()
     val isToAccountLocked by viewModel.isToAccountLocked.collectAsState()
+    val isRecurring by viewModel.isRecurring.collectAsState()
+    val recurringBillName by viewModel.recurringBillName.collectAsState()
+    val recurringFrequency by viewModel.recurringFrequency.collectAsState()
+    val recurringDueDay by viewModel.recurringDueDay.collectAsState()
+    val recurringDueMonth by viewModel.recurringDueMonth.collectAsState()
 
     var showCategoryBottomSheet by remember { mutableStateOf(false) }
     var isCalculatorVisible by remember { mutableStateOf(false) }
     var showInvalidMathDialog by remember { mutableStateOf(false) }
+    var showRecurringBottomSheet by remember { mutableStateOf(false) }
 
     val selectedAccount = accounts.find { it.id == selectedAccountId }
     val selectedToAccount = accounts.find { it.id == selectedToAccountId }
@@ -384,6 +393,80 @@ fun ManualTransactionScreen(
                     )
                 )
 
+                // Optional: Make this recurring (Expense only, not editing)
+                if (selectedType == TransactionType.EXPENSE && !isEditing) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(ZincSoftCornerRadius))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .border(
+                                width = 1.dp,
+                                color = if (isRecurring) AmberGlow.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(ZincSoftCornerRadius)
+                            )
+                            .clickable {
+                                if (!isRecurring) {
+                                    showRecurringBottomSheet = true
+                                } else {
+                                    viewModel.setRecurring(false)
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Checkbox(
+                                checked = isRecurring,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        showRecurringBottomSheet = true
+                                    } else {
+                                        viewModel.setRecurring(false)
+                                    }
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = AmberGlow,
+                                    checkmarkColor = MidnightNavy,
+                                    uncheckedColor = MaterialTheme.colorScheme.outline
+                                )
+                            )
+
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = "Make this recurring",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (isRecurring) {
+                                        val name = recurringBillName.ifEmpty { titleInput.ifEmpty { "Bill" } }
+                                        val freqDesc = when (recurringFrequency.uppercase()) {
+                                            "DAILY" -> "Daily"
+                                            "YEARLY" -> "Yearly on day $recurringDueDay"
+                                            else -> "Monthly on day $recurringDueDay"
+                                        }
+                                        "Tracks as Bill: $name ($freqDesc) • Tap to configure"
+                                    } else {
+                                        "Automatically track future cycles as a Bill Account"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = if (isRecurring) AmberGlow else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Total Amount Input Display Banner (Tap to slide up Calculator)
                 Box(
                     modifier = Modifier
@@ -512,6 +595,20 @@ fun ManualTransactionScreen(
                 viewModel.addCustomCategory(name, iconName)
             },
             onDismiss = { showCategoryBottomSheet = false }
+        )
+    }
+
+    if (showRecurringBottomSheet) {
+        val initialName = recurringBillName.ifEmpty { titleInput.ifEmpty { "Recurring Bill" } }
+        RecurringExpenseBottomSheet(
+            initialBillName = initialName,
+            initialFrequency = recurringFrequency,
+            initialDueDay = recurringDueDay,
+            initialDueMonth = recurringDueMonth,
+            onConfirm = { name, freq, day, month ->
+                viewModel.configureRecurring(name, freq, day, month)
+            },
+            onDismiss = { showRecurringBottomSheet = false }
         )
     }
 }

@@ -56,7 +56,8 @@ class BudgetRepository(
     private val loanBillingCycleDao: LoanBillingCycleDao? = null,
     private val customCategoryDao: CustomCategoryDao? = null,
     private val recurringBillDao: RecurringBillDao? = null,
-    private val creditDetailsDao: CreditDetailsDao? = null
+    private val creditDetailsDao: CreditDetailsDao? = null,
+    private val budgetDao: com.example.budgettracker.data.local.dao.BudgetDao? = null
 ) {
     // Accounts
     val activeAccountsWithBalances: Flow<List<AccountWithBalance>> = accountDao.getAllActiveWithBalances()
@@ -95,7 +96,63 @@ class BudgetRepository(
 
     suspend fun updateTransaction(transaction: TransactionEntity): Int = transactionDao.update(transaction)
 
-    suspend fun deleteTransaction(transaction: TransactionEntity): Int = transactionDao.delete(transaction)
+    suspend fun getInstallmentPlanById(id: Long): InstallmentPlanEntity? =
+        installmentPlanDao.getById(id)
+
+    suspend fun deleteTransaction(transaction: TransactionEntity): Int {
+        // 1. Revert billing cycle payment if linked
+        val cycleIdFromNote = transaction.note?.let { note ->
+            Regex("""\[cycle:(\d+)\]""").find(note)?.groupValues?.get(1)?.toLongOrNull()
+        }
+        val cycleToRevert = if (cycleIdFromNote != null) {
+            loanBillingCycleDao?.getById(cycleIdFromNote)
+        } else if (transaction.type == TransactionType.TRANSFER && transaction.toAccountId != null) {
+            // Fallback: check most recently paid cycle for toAccountId
+            loanBillingCycleDao?.getPaidCyclesDirect(transaction.toAccountId)?.maxByOrNull { it.paidDate ?: 0L }
+        } else null
+
+        if (cycleToRevert != null && cycleToRevert.isPaid) {
+            val restoredPaid = maxOf(0L, (cycleToRevert.paidAmount ?: transaction.amount) - transaction.amount)
+            loanBillingCycleDao?.update(
+                cycleToRevert.copy(
+                    isPaid = false,
+                    paidDate = null,
+                    paidAmount = if (restoredPaid == 0L) null else restoredPaid
+                )
+            )
+            // If loan account, restore totalRemainingBalance
+            val loanDetails = loanDetailsDao?.getByAccountId(cycleToRevert.accountId)
+            if (loanDetails != null) {
+                loanDetailsDao.update(
+                    loanDetails.copy(totalRemainingBalance = loanDetails.totalRemainingBalance + transaction.amount)
+                )
+            }
+        }
+
+        // 2. Revert installment plan if linked
+        if (transaction.installmentPlanId != null) {
+            val plan = installmentPlanDao.getById(transaction.installmentPlanId)
+            if (plan != null) {
+                if (transaction.type == TransactionType.INSTALLMENT) {
+                    // Purchase transaction deleted -> delete the plan
+                    installmentPlanDao.delete(plan)
+                } else {
+                    // Installment monthly payment deleted -> decrement paid, restore remainingBalance
+                    val updated = plan.copy(
+                        installmentsPaid = maxOf(0, plan.installmentsPaid - 1),
+                        remainingBalance = plan.remainingBalance + transaction.amount,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    installmentPlanDao.update(updated)
+                }
+            }
+        }
+
+        val count = transactionDao.delete(transaction)
+        val affectedAccId = transaction.toAccountId ?: transaction.accountId
+        ensurePendingCyclesForAccount(affectedAccId)
+        return count
+    }
 
     suspend fun getTransactionById(id: Long): TransactionEntity? = transactionDao.getById(id)
 
@@ -152,10 +209,29 @@ class BudgetRepository(
 
     fun getSavingsDetailsByAccountIdFlow(accountId: Long): Flow<SavingsAccountDetailsEntity?> = savingsDetailsDao.getByAccountIdFlow(accountId)
 
+    // Budgets
+    fun observeAllBudgets(): Flow<List<com.example.budgettracker.data.local.entity.BudgetEntity>> =
+        budgetDao?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList())
+
+    suspend fun getAllBudgetsDirect(): List<com.example.budgettracker.data.local.entity.BudgetEntity> =
+        budgetDao?.getAll() ?: emptyList()
+
+    suspend fun upsertBudget(budget: com.example.budgettracker.data.local.entity.BudgetEntity): Long =
+        budgetDao?.upsert(budget) ?: -1L
+
+    suspend fun deleteBudget(budget: com.example.budgettracker.data.local.entity.BudgetEntity): Int =
+        budgetDao?.delete(budget) ?: 0
+
+    suspend fun deleteBudgetById(id: Long): Int =
+        budgetDao?.deleteById(id) ?: 0
+
+    suspend fun getOverallBudget(period: String = "MONTHLY"): com.example.budgettracker.data.local.entity.BudgetEntity? =
+        budgetDao?.getOverall(period)
+
     // Bill Account Details
     suspend fun insertBillDetails(details: BillAccountDetailsEntity): Long {
         val id = billDetailsDao.insert(details)
-        ensurePendingCyclesForAccount(details.accountId, details.parseDueDays(), details.amountDue ?: 0L)
+        ensurePendingCyclesForAccount(details.accountId)
         return id
     }
 
@@ -344,7 +420,11 @@ class BudgetRepository(
     suspend fun getBillingCycleById(cycleId: Long): LoanBillingCycleEntity? =
         loanBillingCycleDao?.getById(cycleId)
 
-    suspend fun recordBillingCyclePayment(cycleId: Long, paymentAmount: Long): CyclePaymentResult {
+    suspend fun recordBillingCyclePayment(
+        cycleId: Long,
+        paymentAmount: Long,
+        today: java.time.LocalDate = java.time.LocalDate.now()
+    ): CyclePaymentResult {
         val cycle = loanBillingCycleDao?.getById(cycleId) ?: return CyclePaymentResult.NotFound(cycleId)
         val now = System.currentTimeMillis()
         val totalPaid = (cycle.paidAmount ?: 0L) + paymentAmount
@@ -377,8 +457,8 @@ class BudgetRepository(
                 loanDetailsDao.update(loanDetails.copy(totalRemainingBalance = newRemaining))
             }
 
-            ensurePendingCyclesForAccount(cycle.accountId)
             val overpayment = maxOf(0L, paymentAmount - cycle.amountDue)
+            ensurePendingCyclesForAccount(cycle.accountId, today = today, overpaymentCredit = overpayment)
             CyclePaymentResult.PaidInFull(
                 cycleId = cycleId,
                 amountPaid = paymentAmount,
@@ -394,7 +474,8 @@ class BudgetRepository(
 
     suspend fun ensurePendingCyclesForAccount(
         accountId: Long,
-        today: java.time.LocalDate = java.time.LocalDate.now()
+        today: java.time.LocalDate = java.time.LocalDate.now(),
+        overpaymentCredit: Long = 0L
     ) {
         val account = accountDao.getById(accountId) ?: return
         val dao = loanBillingCycleDao ?: return
@@ -465,11 +546,12 @@ class BudgetRepository(
                 }
 
                 // Compute default amount due: sum of active installment monthly payments if any exist; otherwise fallback to minimumAmountDue
-                val computedDue = if (activePlans.isNotEmpty()) {
+                val rawDue = if (activePlans.isNotEmpty()) {
                     calculateActiveInstallmentsMonthlySum(activePlans)
                 } else {
                     loanDetails.minimumAmountDue
                 }
+                val computedDue = maxOf(0L, rawDue - overpaymentCredit)
 
                 val dueDays = loanDetails.parseDueDays()
                 val paidCycles = dao.getPaidCyclesDirect(accountId)
@@ -517,41 +599,89 @@ class BudgetRepository(
             }
             AccountType.BILL -> {
                 val billDetails = billDetailsDao.getByAccountId(accountId) ?: return
-                val dueDays = billDetails.parseDueDays()
-                val pendingCycles = dao.getPendingCyclesDirect(accountId)
+                var pendingCycles = dao.getPendingCyclesDirect(accountId)
                 val paidCycles = dao.getPaidCyclesDirect(accountId)
+                val rawDue = billDetails.amountDue ?: 0L
+                val computedDue = maxOf(0L, rawDue - overpaymentCredit)
 
-                for (day in dueDays) {
-                    val hasPendingForDay = pendingCycles.any {
-                        val pDate = java.time.Instant.ofEpochMilli(it.cycleDueDate).atZone(zoneId).toLocalDate()
-                        pDate.dayOfMonth == day || (day > 28 && pDate.dayOfMonth == pDate.lengthOfMonth())
+                when (billDetails.recurrence.uppercase()) {
+                    "DAILY" -> {
+                        if (pendingCycles.isEmpty()) {
+                            val candidateDate = com.example.budgettracker.util.LoanDateUtils.calculateNextDailyDueDate(today)
+                            val dueEpoch = candidateDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                            dao.insert(
+                                LoanBillingCycleEntity(
+                                    accountId = accountId,
+                                    cycleDueDate = dueEpoch,
+                                    amountDue = computedDue,
+                                    isPaid = false,
+                                    isManualOverride = false
+                                )
+                            )
+                        }
                     }
-                    if (hasPendingForDay) continue
+                    "YEARLY" -> {
+                        val parts = billDetails.dueDays.split("-").mapNotNull { it.trim().toIntOrNull() }
+                        val month = if (parts.size >= 2) parts[0].coerceIn(1, 12) else today.monthValue
+                        val day = if (parts.size >= 2) parts[1].coerceIn(1, 31) else today.dayOfMonth
 
-                    val clampedDay = day.coerceIn(1, currentYm.lengthOfMonth())
-                    val candidateDate = currentYm.atDay(clampedDay)
-                    val hasPaidCandidate = paidCycles.any {
-                        val paidDate = java.time.Instant.ofEpochMilli(it.cycleDueDate).atZone(zoneId).toLocalDate()
-                        paidDate.year == candidateDate.year && paidDate.month == candidateDate.month && paidDate.dayOfMonth == candidateDate.dayOfMonth
+                        if (pendingCycles.isEmpty()) {
+                            val dueDate = com.example.budgettracker.util.LoanDateUtils.calculateNextYearlyDueDate(today, month, day)
+                            val dueEpoch = dueDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                            dao.insert(
+                                LoanBillingCycleEntity(
+                                    accountId = accountId,
+                                    cycleDueDate = dueEpoch,
+                                    amountDue = computedDue,
+                                    isPaid = false,
+                                    isManualOverride = false
+                                )
+                            )
+                        }
                     }
+                    else -> {
+                        val dueDays = billDetails.parseDueDays()
+                        for (day in dueDays) {
+                            val hasPendingForDay = pendingCycles.any {
+                                val pDate = java.time.Instant.ofEpochMilli(it.cycleDueDate).atZone(zoneId).toLocalDate()
+                                pDate.dayOfMonth == day || (day > 28 && pDate.dayOfMonth == pDate.lengthOfMonth())
+                            }
+                            if (hasPendingForDay) continue
 
-                    val dueDate = if (candidateDate.isBefore(today) || hasPaidCandidate) {
-                        val nextYm = currentYm.plusMonths(1)
-                        nextYm.atDay(day.coerceIn(1, nextYm.lengthOfMonth()))
-                    } else {
-                        candidateDate
+                            val clampedDay = day.coerceIn(1, currentYm.lengthOfMonth())
+                            val candidateDate = currentYm.atDay(clampedDay)
+                            val hasPaidCandidate = paidCycles.any {
+                                val paidDate = java.time.Instant.ofEpochMilli(it.cycleDueDate).atZone(zoneId).toLocalDate()
+                                paidDate.year == candidateDate.year && paidDate.month == candidateDate.month && paidDate.dayOfMonth == candidateDate.dayOfMonth
+                            }
+
+                            val dueDate = if (candidateDate.isBefore(today) || hasPaidCandidate) {
+                                val nextYm = currentYm.plusMonths(1)
+                                nextYm.atDay(day.coerceIn(1, nextYm.lengthOfMonth()))
+                            } else {
+                                candidateDate
+                            }
+
+                            val dueEpoch = dueDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                            dao.insert(
+                                LoanBillingCycleEntity(
+                                    accountId = accountId,
+                                    cycleDueDate = dueEpoch,
+                                    amountDue = computedDue,
+                                    isPaid = false,
+                                    isManualOverride = false
+                                )
+                            )
+                        }
                     }
+                }
 
-                    val dueEpoch = dueDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
-                    dao.insert(
-                        LoanBillingCycleEntity(
-                            accountId = accountId,
-                            cycleDueDate = dueEpoch,
-                            amountDue = billDetails.amountDue ?: 0L,
-                            isPaid = false,
-                            isManualOverride = false
-                        )
-                    )
+                // Update existing pending cycles that haven't been manually overridden
+                pendingCycles = dao.getPendingCyclesDirect(accountId)
+                for (cycle in pendingCycles) {
+                    if (!cycle.isManualOverride && cycle.amountDue != computedDue) {
+                        dao.update(cycle.copy(amountDue = computedDue))
+                    }
                 }
             }
             else -> {}
@@ -571,7 +701,8 @@ class BudgetRepository(
         accountId: Long,
         dueDaysList: List<Int>,
         defaultAmountDue: Long = 0L,
-        today: java.time.LocalDate = java.time.LocalDate.now()
+        today: java.time.LocalDate = java.time.LocalDate.now(),
+        overpaymentCredit: Long = 0L
     ) {
         val dao = loanBillingCycleDao ?: return
         val existingPending = dao.getPendingCyclesDirect(accountId)
@@ -603,7 +734,7 @@ class BudgetRepository(
                     LoanBillingCycleEntity(
                         accountId = accountId,
                         cycleDueDate = dueEpoch,
-                        amountDue = defaultAmountDue,
+                        amountDue = maxOf(0L, defaultAmountDue - overpaymentCredit),
                         isPaid = false,
                         isManualOverride = false
                     )

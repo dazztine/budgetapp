@@ -11,6 +11,7 @@ import com.example.budgettracker.data.local.entity.AccountEntity
 import com.example.budgettracker.data.local.entity.BillAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.BillAmountType
 import com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity
+import com.example.budgettracker.data.local.entity.BudgetEntity
 import com.example.budgettracker.data.local.entity.CustomCategoryEntity
 import com.example.budgettracker.data.local.entity.InstallmentPlanEntity
 import com.example.budgettracker.data.local.entity.LoanBillingCycleEntity
@@ -18,6 +19,7 @@ import com.example.budgettracker.data.local.entity.RecurringBillEntity
 import com.example.budgettracker.data.local.entity.SavingsAccountDetailsEntity
 import com.example.budgettracker.data.local.entity.TransactionEntity
 import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.data.model.AssetTrend
 import com.example.budgettracker.data.model.TransactionType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -159,7 +161,7 @@ class DatabaseMigrationTest {
         // Step 3: Open database with Room v3 builder specifying MIGRATION_2_3
         // Room will execute MIGRATION_2_3 and validate the resulting schema against Room's v3 entity definitions
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
+            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -403,7 +405,7 @@ class DatabaseMigrationTest {
 
         // Step 3: Run migration to v4 using Room
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
+            .addMigrations(AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -591,7 +593,7 @@ class DatabaseMigrationTest {
 
         // Step 3: Run migration to v6 using Room
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
+            .addMigrations(AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -812,7 +814,7 @@ class DatabaseMigrationTest {
 
         // Step 2: Run migration to v6 using Room
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
+            .addMigrations(AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -1020,7 +1022,7 @@ class DatabaseMigrationTest {
 
         // Step 2: Run migration to v7 using Room
         val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_6_7)
+            .addMigrations(AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -1051,6 +1053,562 @@ class DatabaseMigrationTest {
         assertNotNull(creditDetail)
         assertEquals(150_000_00L, creditDetail!!.creditLimit)
         assertEquals(18, creditDetail.statementDueDay)
+
+        roomDb.close()
+    }
+
+    @Test
+    fun testMigrationFromV7ToV8WithPreExistingData() = runBlocking {
+        // Step 1: Create a real SQLite database at Version 7
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(dbName)
+            .callback(object : SupportSQLiteOpenHelper.Callback(7) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `accounts` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `type` TEXT NOT NULL,
+                            `presetId` TEXT,
+                            `initialBalance` INTEGER NOT NULL,
+                            `isActive` INTEGER NOT NULL,
+                            `includeInNetWorth` INTEGER NOT NULL DEFAULT 1,
+                            `displayOrder` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `loan_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `dueDays` TEXT NOT NULL,
+                            `minimumAmountDue` INTEGER NOT NULL,
+                            `totalRemainingBalance` INTEGER NOT NULL,
+                            `reminderEnabled` INTEGER NOT NULL,
+                            `reminderDaysBefore` INTEGER NOT NULL,
+                            `creditLimit` INTEGER,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `savings_account_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `interestRate` REAL,
+                            `goalAmount` INTEGER,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `bill_account_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `dueDays` TEXT NOT NULL,
+                            `amountDue` INTEGER,
+                            `amountType` TEXT NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `loan_billing_cycles` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `accountId` INTEGER NOT NULL,
+                            `cycleDueDate` INTEGER NOT NULL,
+                            `amountDue` INTEGER NOT NULL,
+                            `isPaid` INTEGER NOT NULL DEFAULT 0,
+                            `paidDate` INTEGER DEFAULT NULL,
+                            `paidAmount` INTEGER DEFAULT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `isManualOverride` INTEGER NOT NULL DEFAULT 0,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_loan_billing_cycles_accountId` ON `loan_billing_cycles` (`accountId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_loan_billing_cycles_accountId_isPaid` ON `loan_billing_cycles` (`accountId`, `isPaid`)")
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `credit_account_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `creditLimit` INTEGER NOT NULL,
+                            `statementDueDay` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `custom_categories` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `transactionType` TEXT NOT NULL,
+                            `iconName` TEXT NOT NULL,
+                            `createdAt` INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_custom_categories_transactionType` ON `custom_categories` (`transactionType`)")
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `installment_plans` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `accountId` INTEGER NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `category` TEXT NOT NULL,
+                            `totalPurchaseAmount` INTEGER NOT NULL,
+                            `totalInstallments` INTEGER NOT NULL,
+                            `installmentsPaid` INTEGER NOT NULL,
+                            `remainingBalance` INTEGER NOT NULL,
+                            `monthlyPaymentAmount` INTEGER NOT NULL,
+                            `purchaseDate` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_installment_plans_accountId` ON `installment_plans` (`accountId`)")
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `transactions` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `type` TEXT NOT NULL,
+                            `amount` INTEGER NOT NULL,
+                            `isAdjustment` INTEGER NOT NULL,
+                            `accountId` INTEGER NOT NULL,
+                            `toAccountId` INTEGER,
+                            `installmentPlanId` INTEGER,
+                            `category` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `timestamp` INTEGER NOT NULL,
+                            `note` TEXT,
+                            `createdAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+                            FOREIGN KEY(`toAccountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+                            FOREIGN KEY(`installmentPlanId`) REFERENCES `installment_plans`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_accountId` ON `transactions` (`accountId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_installmentPlanId` ON `transactions` (`installmentPlanId`)")
+
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `recurring_bills` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `amount` INTEGER NOT NULL,
+                            `dueDay` INTEGER NOT NULL,
+                            `accountId` INTEGER,
+                            `category` TEXT NOT NULL,
+                            `isAutoPay` INTEGER NOT NULL,
+                            `isActive` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_bills_accountId` ON `recurring_bills` (`accountId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_bills_isActive` ON `recurring_bills` (`isActive`)")
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+
+        val helper = FrameworkSQLiteOpenHelperFactory().create(config)
+        val v7Db = helper.writableDatabase
+
+        // Insert pre-existing v7 account and bill details (without recurrence column)
+        v7Db.execSQL("""
+            INSERT INTO `accounts` (`id`, `name`, `type`, `presetId`, `initialBalance`, `isActive`, `includeInNetWorth`, `displayOrder`, `createdAt`, `updatedAt`)
+            VALUES (1, 'Meralco Bill', 'BILL', 'meralco', 0, 1, 1, 0, 1700000000000, 1700000000000)
+        """.trimIndent())
+
+        v7Db.execSQL("""
+            INSERT INTO `bill_account_details` (`accountId`, `dueDays`, `amountDue`, `amountType`, `createdAt`, `updatedAt`)
+            VALUES (1, '15', 350000, 'FIXED', 1700000000000, 1700000000000)
+        """.trimIndent())
+
+        v7Db.close()
+        helper.close()
+
+        // Step 2: Run migration to v9 using Room
+        val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
+            .allowMainThreadQueries()
+            .build()
+
+        val billDao = roomDb.billDetailsDao()
+
+        // Step 3: Verify pre-existing bill details migrated with default recurrence 'MONTHLY'
+        val migratedDetail = billDao.getByAccountId(1L)
+        assertNotNull(migratedDetail)
+        assertEquals(350000L, migratedDetail!!.amountDue)
+        assertEquals("15", migratedDetail.dueDays)
+        assertEquals("MONTHLY", migratedDetail.recurrence)
+
+        // Step 4: Verify inserting new bill details with YEARLY recurrence
+        val accountDao = roomDb.accountDao()
+        accountDao.insert(
+            AccountEntity(
+                id = 2L,
+                name = "Car Insurance",
+                type = AccountType.BILL,
+                initialBalance = 0L
+            )
+        )
+        billDao.insert(
+            BillAccountDetailsEntity(
+                accountId = 2L,
+                dueDays = "10-25",
+                amountDue = 1500000L,
+                recurrence = "YEARLY"
+            )
+        )
+
+        val yearlyDetail = billDao.getByAccountId(2L)
+        assertNotNull(yearlyDetail)
+        assertEquals("YEARLY", yearlyDetail!!.recurrence)
+        assertEquals("10-25", yearlyDetail.dueDays)
+        assertEquals(1500000L, yearlyDetail.amountDue)
+
+        roomDb.close()
+    }
+
+    @Test
+    fun testMigrationFromV8ToV9WithPreExistingData() = runBlocking {
+        // Step 1: Create a real SQLite database at Version 8
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(dbName)
+            .callback(object : SupportSQLiteOpenHelper.Callback(8) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Create v8 accounts (without assetTrend)
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `accounts` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `type` TEXT NOT NULL,
+                            `presetId` TEXT,
+                            `initialBalance` INTEGER NOT NULL,
+                            `isActive` INTEGER NOT NULL,
+                            `includeInNetWorth` INTEGER NOT NULL DEFAULT 1,
+                            `displayOrder` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_accounts_isActive_displayOrder` ON `accounts` (`isActive`, `displayOrder`)")
+
+                    // Create v8 savings_account_details (without targetDate, iconPreset, isGoal)
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `savings_account_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `interestRate` REAL,
+                            `goalAmount` INTEGER,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    // Create v8 bill_account_details (with recurrence)
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `bill_account_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `dueDays` TEXT NOT NULL,
+                            `amountDue` INTEGER,
+                            `amountType` TEXT NOT NULL,
+                            `recurrence` TEXT NOT NULL DEFAULT 'MONTHLY',
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    // Create v8 credit_account_details
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `credit_account_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `creditLimit` INTEGER NOT NULL,
+                            `statementDueDay` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    // Create v8 loan_details
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `loan_details` (
+                            `accountId` INTEGER PRIMARY KEY NOT NULL,
+                            `dueDays` TEXT NOT NULL,
+                            `minimumAmountDue` INTEGER NOT NULL,
+                            `totalRemainingBalance` INTEGER NOT NULL,
+                            `reminderEnabled` INTEGER NOT NULL,
+                            `reminderDaysBefore` INTEGER NOT NULL,
+                            `creditLimit` INTEGER,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    // Create v8 loan_billing_cycles
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `loan_billing_cycles` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `accountId` INTEGER NOT NULL,
+                            `cycleDueDate` INTEGER NOT NULL,
+                            `amountDue` INTEGER NOT NULL,
+                            `isPaid` INTEGER NOT NULL DEFAULT 0,
+                            `paidDate` INTEGER DEFAULT NULL,
+                            `paidAmount` INTEGER DEFAULT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `isManualOverride` INTEGER NOT NULL DEFAULT 0,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_loan_billing_cycles_accountId` ON `loan_billing_cycles` (`accountId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_loan_billing_cycles_accountId_isPaid` ON `loan_billing_cycles` (`accountId`, `isPaid`)")
+
+                    // Create v8 custom_categories
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `custom_categories` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `transactionType` TEXT NOT NULL,
+                            `iconName` TEXT NOT NULL,
+                            `createdAt` INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_custom_categories_transactionType` ON `custom_categories` (`transactionType`)")
+
+                    // Create v8 installment_plans
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `installment_plans` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `accountId` INTEGER NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `category` TEXT NOT NULL,
+                            `totalPurchaseAmount` INTEGER NOT NULL,
+                            `totalInstallments` INTEGER NOT NULL,
+                            `installmentsPaid` INTEGER NOT NULL,
+                            `remainingBalance` INTEGER NOT NULL,
+                            `monthlyPaymentAmount` INTEGER NOT NULL,
+                            `purchaseDate` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_installment_plans_accountId` ON `installment_plans` (`accountId`)")
+
+                    // Create v8 transactions
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `transactions` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `type` TEXT NOT NULL,
+                            `amount` INTEGER NOT NULL,
+                            `isAdjustment` INTEGER NOT NULL,
+                            `accountId` INTEGER NOT NULL,
+                            `toAccountId` INTEGER,
+                            `installmentPlanId` INTEGER,
+                            `category` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `timestamp` INTEGER NOT NULL,
+                            `note` TEXT,
+                            `createdAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+                            FOREIGN KEY(`toAccountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+                            FOREIGN KEY(`installmentPlanId`) REFERENCES `installment_plans`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_accountId` ON `transactions` (`accountId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_toAccountId` ON `transactions` (`toAccountId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_installmentPlanId` ON `transactions` (`installmentPlanId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_timestamp` ON `transactions` (`timestamp`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_type_category` ON `transactions` (`type`, `category`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_type_title` ON `transactions` (`type`, `title`)")
+
+                    // Create v8 recurring_bills
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS `recurring_bills` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `amount` INTEGER NOT NULL,
+                            `dueDay` INTEGER NOT NULL,
+                            `accountId` INTEGER,
+                            `category` TEXT NOT NULL,
+                            `isAutoPay` INTEGER NOT NULL,
+                            `isActive` INTEGER NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_bills_accountId` ON `recurring_bills` (`accountId`)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_bills_isActive` ON `recurring_bills` (`isActive`)")
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+
+        val helper = FrameworkSQLiteOpenHelperFactory().create(config)
+        val v8Db = helper.writableDatabase
+
+        // Seed v8 pre-existing data
+        // 1. ASSET account
+        v8Db.execSQL("""
+            INSERT INTO `accounts` (`id`, `name`, `type`, `presetId`, `initialBalance`, `isActive`, `includeInNetWorth`, `displayOrder`, `createdAt`, `updatedAt`)
+            VALUES (1, 'Real Estate Land', 'ASSET', NULL, 500000000, 1, 1, 0, 1700000000000, 1700000000000)
+        """.trimIndent())
+
+        // 2. SAVINGS account with details (reusing existing goalAmount = 100,000.00 PHP)
+        v8Db.execSQL("""
+            INSERT INTO `accounts` (`id`, `name`, `type`, `presetId`, `initialBalance`, `isActive`, `includeInNetWorth`, `displayOrder`, `createdAt`, `updatedAt`)
+            VALUES (2, 'Emergency Fund Account', 'SAVINGS', 'maya_savings', 2500000, 1, 1, 1, 1700000000000, 1700000000000)
+        """.trimIndent())
+        v8Db.execSQL("""
+            INSERT INTO `savings_account_details` (`accountId`, `interestRate`, `goalAmount`, `createdAt`, `updatedAt`)
+            VALUES (2, 4.5, 10000000, 1700000000000, 1700000000000)
+        """.trimIndent())
+
+        // 3. BILL account with details (recurrence = 'MONTHLY')
+        v8Db.execSQL("""
+            INSERT INTO `accounts` (`id`, `name`, `type`, `presetId`, `initialBalance`, `isActive`, `includeInNetWorth`, `displayOrder`, `createdAt`, `updatedAt`)
+            VALUES (3, 'Internet Bill', 'BILL', 'converge', 0, 1, 0, 2, 1700000000000, 1700000000000)
+        """.trimIndent())
+        v8Db.execSQL("""
+            INSERT INTO `bill_account_details` (`accountId`, `dueDays`, `amountDue`, `amountType`, `recurrence`, `createdAt`, `updatedAt`)
+            VALUES (3, '20', 150000, 'FIXED', 'MONTHLY', 1700000000000, 1700000000000)
+        """.trimIndent())
+
+        // 4. Pre-existing transactions
+        v8Db.execSQL("""
+            INSERT INTO `transactions` (`id`, `type`, `amount`, `isAdjustment`, `accountId`, `toAccountId`, `category`, `title`, `timestamp`, `note`, `createdAt`)
+            VALUES (1, 'INCOME', 5000000, 0, 2, NULL, 'Salary', 'Cutoff Pay', 1700001000000, 'Direct deposit', 1700001000000)
+        """.trimIndent())
+
+        v8Db.close()
+        helper.close()
+
+        // Step 2: Run migration to v9 using Room
+        val roomDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(AppDatabase.MIGRATION_8_9)
+            .allowMainThreadQueries()
+            .build()
+
+        val accountDao = roomDb.accountDao()
+        val savingsDao = roomDb.savingsDetailsDao()
+        val budgetDao = roomDb.budgetDao()
+
+        // Step 3: Assert pre-existing accounts survive and have default assetTrend = NEUTRAL
+        val assetAcc = accountDao.getById(1L)
+        assertNotNull(assetAcc)
+        assertEquals("Real Estate Land", assetAcc!!.name)
+        assertEquals(AccountType.ASSET, assetAcc.type)
+        assertEquals(AssetTrend.NEUTRAL, assetAcc.assetTrend)
+
+        val savingsAcc = accountDao.getById(2L)
+        assertNotNull(savingsAcc)
+        assertEquals(AccountType.SAVINGS, savingsAcc!!.type)
+        assertEquals(AssetTrend.NEUTRAL, savingsAcc.assetTrend)
+
+        // Step 4: Assert savings details survived with goalAmount and have new defaults (targetDate null, iconPreset 'savings', isGoal 0)
+        val savingsDetails = savingsDao.getByAccountId(2L)
+        assertNotNull(savingsDetails)
+        assertEquals(10000000L, savingsDetails!!.goalAmount)
+        assertEquals(4.5, savingsDetails.interestRate)
+        assertNull(savingsDetails.targetDate)
+        assertEquals("savings", savingsDetails.iconPreset)
+        assertFalse(savingsDetails.isGoal)
+
+        // Step 5: Assert updating goal metadata and assetTrend works on v9
+        savingsDao.update(
+            savingsDetails.copy(
+                isGoal = true,
+                iconPreset = "emergency",
+                targetDate = 1750000000000L
+            )
+        )
+        val updatedSavings = savingsDao.getByAccountId(2L)
+        assertNotNull(updatedSavings)
+        assertTrue(updatedSavings!!.isGoal)
+        assertEquals("emergency", updatedSavings.iconPreset)
+        assertEquals(1750000000000L, updatedSavings.targetDate)
+
+        accountDao.update(assetAcc.copy(assetTrend = AssetTrend.GAINS_VALUE))
+        val updatedAsset = accountDao.getById(1L)
+        assertNotNull(updatedAsset)
+        assertEquals(AssetTrend.GAINS_VALUE, updatedAsset!!.assetTrend)
+
+        // Step 6: Assert budgets table exists, accepts rows, and enforces unique index on (category, period)
+        val initialBudgets = budgetDao.observeAll().first()
+        assertTrue(initialBudgets.isEmpty())
+
+        // Insert category budget
+        val catBudgetId = budgetDao.upsert(
+            BudgetEntity(category = "Food & Dining", amount = 1500000L, period = "MONTHLY")
+        )
+        assertTrue(catBudgetId > 0)
+
+        // Insert overall budget
+        val overallBudgetId1 = budgetDao.upsert(
+            BudgetEntity(category = null, amount = 5000000L, period = "MONTHLY")
+        )
+        assertTrue(overallBudgetId1 > 0)
+
+        val allBudgets = budgetDao.observeAll().first()
+        assertEquals(2, allBudgets.size)
+
+        // Verify unique index on (category, period) in SQLite
+        val rawDb = roomDb.openHelper.writableDatabase
+        val cursor = rawDb.query("PRAGMA index_list('budgets')")
+        var foundUniqueCatPeriodIndex = false
+        var targetIndexName = ""
+        while (cursor.moveToNext()) {
+            val idxName = cursor.getString(cursor.getColumnIndexOrThrow("name"))
+            val isUnique = cursor.getInt(cursor.getColumnIndexOrThrow("unique")) == 1
+            if (idxName == "index_budgets_category_period" && isUnique) {
+                foundUniqueCatPeriodIndex = true
+                targetIndexName = idxName
+            }
+        }
+        cursor.close()
+        assertTrue("Expected index_budgets_category_period to be a UNIQUE index", foundUniqueCatPeriodIndex)
+
+        // Strengthen unique index assertion: assert indexed columns via PRAGMA index_info
+        val infoCursor = rawDb.query("PRAGMA index_info('$targetIndexName')")
+        val indexedColumns = mutableListOf<String>()
+        while (infoCursor.moveToNext()) {
+            indexedColumns.add(infoCursor.getString(infoCursor.getColumnIndexOrThrow("name")))
+        }
+        infoCursor.close()
+        assertEquals(listOf("category", "period"), indexedColumns)
+
+        // Verify unique index on (category, period) in SQLite prevents duplicate category in same period
+        var uniqueConstraintTriggered = false
+        try {
+            rawDb.execSQL("INSERT INTO budgets (category, amount, period, createdAt, updatedAt) VALUES ('Food & Dining', 9999, 'MONTHLY', 100, 100)")
+        } catch (_: android.database.sqlite.SQLiteConstraintException) {
+            uniqueConstraintTriggered = true
+        }
+        assertTrue("Expected SQLite UNIQUE constraint to be triggered for duplicate category", uniqueConstraintTriggered)
+
+        // Assert that two overall budgets (category NULL, same period) are prevented by BudgetDao.upsert (updates existing instead of inserting duplicate)
+        val overallBudgetId2 = budgetDao.upsert(
+            BudgetEntity(category = null, amount = 6500000L, period = "MONTHLY")
+        )
+        assertEquals("BudgetDao.upsert must reuse and update the existing overall budget row id", overallBudgetId1, overallBudgetId2)
+
+        val overallAfterUpsert = budgetDao.getOverall("MONTHLY")
+        assertNotNull(overallAfterUpsert)
+        assertEquals(6500000L, overallAfterUpsert!!.amount)
+
+        val totalNullBudgetsAfterDaoUpsert = budgetDao.getAll().count { it.category == null && it.period == "MONTHLY" }
+        assertEquals(1, totalNullBudgetsAfterDaoUpsert)
 
         roomDb.close()
     }

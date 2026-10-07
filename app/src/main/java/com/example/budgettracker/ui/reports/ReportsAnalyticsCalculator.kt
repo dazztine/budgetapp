@@ -12,6 +12,7 @@ import com.example.budgettracker.data.model.TransactionType
 import com.example.budgettracker.ui.theme.AmberGlow
 import com.example.budgettracker.ui.theme.MutedCoral
 import com.example.budgettracker.ui.theme.MutedSage
+import com.example.budgettracker.domain.BudgetPaceCalculator
 import com.example.budgettracker.util.LoanDateUtils
 import java.time.Instant
 import java.time.LocalDate
@@ -40,6 +41,10 @@ object ReportsAnalyticsCalculator {
         Color(0xFF60A5FA)      // Blue 400
     )
 
+    fun isExpenseTransaction(tx: TransactionEntity, billAccountIds: Set<Long>): Boolean {
+        return com.example.budgettracker.domain.BudgetPaceCalculator.isExpenseTransaction(tx, billAccountIds)
+    }
+
     /**
      * Tier 1: Spending by Category.
      * Top 5-6 categories with amounts and percentages; remainder grouped as "Others".
@@ -48,11 +53,11 @@ object ReportsAnalyticsCalculator {
     fun calculateSpendingByCategory(
         transactions: List<TransactionEntity>,
         startTime: Long,
-        endTime: Long
+        endTime: Long,
+        billAccountIds: Set<Long> = emptySet()
     ): Pair<Long, List<CategorySpending>> {
         val expenseTx = transactions.filter {
-            it.timestamp in startTime..endTime &&
-                    (it.type == TransactionType.EXPENSE || it.type == TransactionType.INSTALLMENT)
+            it.timestamp in startTime..endTime && isExpenseTransaction(it, billAccountIds)
         }
 
         val totalExpense = expenseTx.sumOf { it.amount }
@@ -60,8 +65,8 @@ object ReportsAnalyticsCalculator {
             return Pair(0L, emptyList())
         }
 
-        val grouped = expenseTx
-            .groupBy { it.category.trim().ifEmpty { "Uncategorized" } }
+        val grouped: List<Pair<String, Pair<Long, Int>>> = expenseTx
+            .groupBy { BudgetPaceCalculator.effectiveSpendingCategory(it, billAccountIds) }
             .mapValues { entry ->
                 Pair(entry.value.sumOf { it.amount }, entry.value.size)
             }
@@ -108,15 +113,14 @@ object ReportsAnalyticsCalculator {
         transactions: List<TransactionEntity>,
         period: ReportPeriod,
         referenceDate: LocalDate = LocalDate.now(),
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        billAccountIds: Set<Long> = emptySet()
     ): IncomeExpenseComparison {
         val (startTime, endTime) = period.getTimeRange(referenceDate, zoneId)
         val periodTx = transactions.filter { it.timestamp in startTime..endTime }
 
         val totalIncome = periodTx.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
-        val totalExpense = periodTx.filter {
-            it.type == TransactionType.EXPENSE || it.type == TransactionType.INSTALLMENT
-        }.sumOf { it.amount }
+        val totalExpense = periodTx.filter { isExpenseTransaction(it, billAccountIds) }.sumOf { it.amount }
 
         val netAmount = totalIncome - totalExpense
         val isSaved = netAmount >= 0
@@ -143,9 +147,7 @@ object ReportsAnalyticsCalculator {
 
             val monthTx = transactions.filter { it.timestamp in monthStart..monthEnd }
             val mIncome = monthTx.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
-            val mExpense = monthTx.filter {
-                it.type == TransactionType.EXPENSE || it.type == TransactionType.INSTALLMENT
-            }.sumOf { it.amount }
+            val mExpense = monthTx.filter { isExpenseTransaction(it, billAccountIds) }.sumOf { it.amount }
 
             val label = ym.month.getDisplayName(TextStyle.SHORT, Locale.US)
             monthlyBars.add(MonthlyBarData(label, mIncome, mExpense))
@@ -386,11 +388,12 @@ object ReportsAnalyticsCalculator {
     fun calculateTopMerchants(
         transactions: List<TransactionEntity>,
         startTime: Long,
-        endTime: Long
+        endTime: Long,
+        billAccountIds: Set<Long> = emptySet()
     ): List<MerchantSpend> {
         val expenseTx = transactions.filter {
             it.timestamp in startTime..endTime &&
-                    (it.type == TransactionType.EXPENSE || it.type == TransactionType.INSTALLMENT) &&
+                    isExpenseTransaction(it, billAccountIds) &&
                     it.title.isNotBlank()
         }
 
@@ -422,7 +425,8 @@ object ReportsAnalyticsCalculator {
     fun calculateCategoryTrends(
         transactions: List<TransactionEntity>,
         referenceDate: LocalDate = LocalDate.now(),
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        billAccountIds: Set<Long> = emptySet()
     ): Pair<List<String>, List<CategoryTrend>> {
         val currentYm = YearMonth.from(referenceDate)
         val startYm = currentYm.minusMonths(5)
@@ -430,8 +434,7 @@ object ReportsAnalyticsCalculator {
         val endTime = currentYm.atEndOfMonth().atTime(23, 59, 59, 999_000_000).atZone(zoneId).toInstant().toEpochMilli()
 
         val periodExpenses = transactions.filter {
-            it.timestamp in startTime..endTime &&
-                    (it.type == TransactionType.EXPENSE || it.type == TransactionType.INSTALLMENT)
+            it.timestamp in startTime..endTime && isExpenseTransaction(it, billAccountIds)
         }
 
         if (periodExpenses.isEmpty()) return Pair(emptyList(), emptyList())
@@ -455,7 +458,7 @@ object ReportsAnalyticsCalculator {
                 val mEnd = ym.atEndOfMonth().atTime(23, 59, 59, 999_000_000).atZone(zoneId).toInstant().toEpochMilli()
                 val sum = transactions.filter {
                     it.timestamp in mStart..mEnd &&
-                            (it.type == TransactionType.EXPENSE || it.type == TransactionType.INSTALLMENT) &&
+                            isExpenseTransaction(it, billAccountIds) &&
                             it.category.trim().ifEmpty { "Uncategorized" }.equals(category, ignoreCase = true)
                 }.sumOf { it.amount }
 
@@ -478,12 +481,12 @@ object ReportsAnalyticsCalculator {
         transactions: List<TransactionEntity>,
         period: ReportPeriod,
         referenceDate: LocalDate = LocalDate.now(),
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        billAccountIds: Set<Long> = emptySet()
     ): DailyBurnRate {
         val (startTime, endTime) = period.getTimeRange(referenceDate, zoneId)
         val periodExpenses = transactions.filter {
-            it.timestamp in startTime..endTime &&
-                    (it.type == TransactionType.EXPENSE || it.type == TransactionType.INSTALLMENT)
+            it.timestamp in startTime..endTime && isExpenseTransaction(it, billAccountIds)
         }
 
         val totalExpense = periodExpenses.sumOf { it.amount }

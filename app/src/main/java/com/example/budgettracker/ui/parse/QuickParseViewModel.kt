@@ -133,10 +133,6 @@ class QuickParseViewModel(
         creditDetails: com.example.budgettracker.data.local.entity.CreditAccountDetailsEntity? = null,
         onCreated: (Long) -> Unit = {}
     ) {
-        if (activeAccounts.value.size >= 10) {
-            _parseResult.value = ParseUiResult.Error("Account limit reached (maximum 10 accounts)")
-            return
-        }
         viewModelScope.launch(ioDispatcher) {
             val id = repository.insertAccount(account)
             if (loanDetails != null) {
@@ -164,10 +160,6 @@ class QuickParseViewModel(
     ) {
         if (accountsToSave.isEmpty()) {
             _parseResult.value = ParseUiResult.Error("No accounts to save")
-            return
-        }
-        if (activeAccounts.value.size + accountsToSave.size > 10) {
-            _parseResult.value = ParseUiResult.Error("Account limit reached (maximum 10 accounts)")
             return
         }
 

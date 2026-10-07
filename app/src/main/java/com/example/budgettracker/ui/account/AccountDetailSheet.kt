@@ -188,12 +188,16 @@ fun AccountDetailBodyContent(
             loanDetails = loanDetails,
             savingsDetails = savingsDetails,
             billDetails = billDetails,
+            pendingCycles = pendingCycles,
             transactions = transactions,
             allAccounts = allAccounts,
             onEditClick = onEditClick,
             onNetWorthToggle = onNetWorthToggle,
             onDeleteTransaction = onDeleteTransaction,
             onEditTransaction = { viewingTransaction = it },
+            onPayBill = onPayBill,
+            onUpdateCycleDueDate = onUpdateCycleDueDate,
+            onUpdateCycleAmountDue = onUpdateCycleAmountDue,
             isBalanceVisible = isBalanceVisible
         )
     }
@@ -1436,184 +1440,18 @@ private fun LoanAccountDetailContent(
                 0 -> {
                     // TAB 1: CURRENT (Billing Cycle Cards or Caught up empty state)
                     if (pendingCycles.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(ZincCornerRadius))
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(ZincCornerRadius))
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(Green500.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = Green500,
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                }
-                                Text(
-                                    text = "You're all caught up!",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "No payments due right now.",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        AllCaughtUpCard()
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             pendingCycles.forEach { cycle ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(ZincCornerRadius))
-                                        .background(MaterialTheme.colorScheme.surface)
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(ZincCornerRadius))
-                                        .padding(16.dp)
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        // Header of Card: Title + PAYMENT DUE Badge
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "Billing Cycle",
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(Color(0xFFF87171).copy(alpha = 0.15f))
-                                                    .border(1.dp, Color(0xFFF87171), RoundedCornerShape(4.dp))
-                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "PAYMENT DUE",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFFF87171)
-                                                )
-                                            }
-                                        }
-
-                                        // Due Date Row
-                                        val formattedDueDate = SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date(cycle.cycleDueDate))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column {
-                                                Text(
-                                                    text = "Due Date",
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                Text(
-                                                    text = formattedDueDate,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-
-                                            TextButton(
-                                                onClick = { showDatePickerForCycle(cycle) },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.CalendarToday,
-                                                    contentDescription = "Change Due Date",
-                                                    tint = AmberGlow,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Change", fontSize = 12.sp, color = AmberGlow)
-                                            }
-                                        }
-
-                                        // Amount Due Row
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column {
-                                                Text(
-                                                    text = "Amount Due",
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                Text(
-                                                    text = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(cycle.amountDue) else "₱ ••••••",
-                                                    fontSize = 18.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-
-                                            TextButton(
-                                                onClick = { cycleToEditAmount = cycle },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = "Edit Amount Due",
-                                                    tint = AmberGlow,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Edit", fontSize = 12.sp, color = AmberGlow)
-                                            }
-                                        }
-
-                                        // Pay Bill Action Button
-                                        Button(
-                                            onClick = { onPayBill(account.id, cycle.amountDue, cycle.id) },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = AmberGlow,
-                                                contentColor = MidnightNavy
-                                            ),
-                                            shape = RoundedCornerShape(ZincSoftCornerRadius),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(44.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Payment,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = "Pay Bill",
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
+                                PendingBillingCycleCard(
+                                    cycle = cycle,
+                                    accountId = account.id,
+                                    isBalanceVisible = isBalanceVisible,
+                                    onChangeDueDate = { showDatePickerForCycle(cycle) },
+                                    onEditAmount = { cycleToEditAmount = cycle },
+                                    onPayBill = onPayBill
+                                )
                             }
                         }
                     }
@@ -1981,14 +1819,43 @@ private fun StandardAccountDetailContent(
     loanDetails: LoanAccountDetailsEntity?,
     savingsDetails: SavingsAccountDetailsEntity?,
     billDetails: BillAccountDetailsEntity?,
+    pendingCycles: List<LoanBillingCycleEntity> = emptyList(),
     transactions: List<TransactionEntity>,
     allAccounts: List<AccountWithBalance>,
     onEditClick: () -> Unit,
     onNetWorthToggle: (Boolean) -> Unit,
     onDeleteTransaction: (TransactionEntity) -> Unit,
     onEditTransaction: (TransactionEntity) -> Unit,
+    onPayBill: (accountId: Long, amountCentavos: Long, cycleId: Long?) -> Unit = { _, _, _ -> },
+    onUpdateCycleDueDate: (cycleId: Long, dueDateMillis: Long) -> Unit = { _, _ -> },
+    onUpdateCycleAmountDue: (cycleId: Long, amountDueCentavos: Long) -> Unit = { _, _ -> },
     isBalanceVisible: Boolean
 ) {
+    val context = LocalContext.current
+    var cycleToEditAmount by remember { mutableStateOf<LoanBillingCycleEntity?>(null) }
+
+    val showDatePickerForCycle: (LoanBillingCycleEntity) -> Unit = { cycle ->
+        val cycleCal = Calendar.getInstance().apply { timeInMillis = cycle.cycleDueDate }
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val selectedCal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                onUpdateCycleDueDate(cycle.id, selectedCal.timeInMillis)
+            },
+            cycleCal.get(Calendar.YEAR),
+            cycleCal.get(Calendar.MONTH),
+            cycleCal.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2143,6 +2010,45 @@ private fun StandardAccountDetailContent(
             }
         }
 
+        if (account.type == AccountType.BILL) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Instructional Banner (Neutral wording for BILL)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(ZincSoftCornerRadius))
+                    .background(Color(0xFFF7D88F).copy(alpha = 0.15f))
+                    .border(1.dp, Color(0xFFF7D88F).copy(alpha = 0.35f), RoundedCornerShape(ZincSoftCornerRadius))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = "💡 Use the 'Pay Bill' button to record your bill payments.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            if (pendingCycles.isEmpty()) {
+                AllCaughtUpCard()
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    pendingCycles.forEach { cycle ->
+                        PendingBillingCycleCard(
+                            cycle = cycle,
+                            accountId = account.id,
+                            isBalanceVisible = isBalanceVisible,
+                            onChangeDueDate = { showDatePickerForCycle(cycle) },
+                            onEditAmount = { cycleToEditAmount = cycle },
+                            onPayBill = onPayBill
+                        )
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(14.dp))
 
         // Net Worth Toggle Switch Card
@@ -2227,6 +2133,19 @@ private fun StandardAccountDetailContent(
         }
 
         Spacer(modifier = Modifier.height(20.dp))
+    }
+
+    cycleToEditAmount?.let { cycle ->
+        EditAmountDueDialog(
+            initialAmountCentavos = cycle.amountDue,
+            title = "Change statement amount",
+            subtitle = "Enter the statement amount due:",
+            onConfirm = { newAmount ->
+                onUpdateCycleAmountDue(cycle.id, newAmount)
+                cycleToEditAmount = null
+            },
+            onDismiss = { cycleToEditAmount = null }
+        )
     }
 }
 
@@ -2330,5 +2249,198 @@ private fun getDayOfMonthSuffix(n: Int): String {
         2 -> "nd"
         3 -> "rd"
         else -> "th"
+    }
+}
+
+@Composable
+fun AllCaughtUpCard(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(ZincCornerRadius))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(ZincCornerRadius))
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Green500.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = Green500,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            Text(
+                text = "You're all caught up!",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "No payments due right now.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun PendingBillingCycleCard(
+    cycle: LoanBillingCycleEntity,
+    accountId: Long,
+    isBalanceVisible: Boolean,
+    onChangeDueDate: () -> Unit,
+    onEditAmount: () -> Unit,
+    onPayBill: (accountId: Long, amountCentavos: Long, cycleId: Long?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(ZincCornerRadius))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(ZincCornerRadius))
+            .padding(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Header of Card: Title + PAYMENT DUE Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Billing Cycle",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFFF87171).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFFF87171), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "PAYMENT DUE",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFF87171)
+                    )
+                }
+            }
+
+            // Due Date Row
+            val formattedDueDate = SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date(cycle.cycleDueDate))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Due Date",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = formattedDueDate,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                TextButton(
+                    onClick = onChangeDueDate,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = "Change Due Date",
+                        tint = AmberGlow,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Change", fontSize = 12.sp, color = AmberGlow)
+                }
+            }
+
+            // Amount Due Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Amount Due",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (isBalanceVisible) CurrencyUtils.formatCentavosToPesos(cycle.amountDue) else "₱ ••••••",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                TextButton(
+                    onClick = onEditAmount,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Amount Due",
+                        tint = AmberGlow,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Edit", fontSize = 12.sp, color = AmberGlow)
+                }
+            }
+
+            // Pay Bill Action Button
+            Button(
+                onClick = { onPayBill(accountId, cycle.amountDue, cycle.id) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AmberGlow,
+                    contentColor = MidnightNavy
+                ),
+                shape = RoundedCornerShape(ZincSoftCornerRadius),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Payment,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Pay Bill",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }

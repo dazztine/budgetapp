@@ -38,7 +38,8 @@ sealed class SaveResult {
 
 class TransactionViewModel(
     private val repository: BudgetRepository,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val clock: java.time.Clock = java.time.Clock.system(com.example.budgettracker.domain.TransactionDateValidator.DEFAULT_ZONE_ID)
 ) : ViewModel() {
 
     companion object {
@@ -84,7 +85,7 @@ class TransactionViewModel(
     private val _noteInput = MutableStateFlow("")
     val noteInput: StateFlow<String> = _noteInput.asStateFlow()
 
-    private val _timestamp = MutableStateFlow(System.currentTimeMillis())
+    private val _timestamp = MutableStateFlow(clock.millis())
     val timestamp: StateFlow<Long> = _timestamp.asStateFlow()
 
     private val _saveState = MutableStateFlow<SaveResult>(SaveResult.Idle)
@@ -515,6 +516,12 @@ class TransactionViewModel(
             }
         }
 
+        val dateValidation = com.example.budgettracker.domain.TransactionDateValidator.validate(_timestamp.value, clock)
+        if (dateValidation is com.example.budgettracker.domain.TransactionDateValidationResult.FutureDateRejected) {
+            _saveState.value = SaveResult.Error(dateValidation.errorMessage)
+            return
+        }
+
         if (!isSavingInProgress.compareAndSet(false, true)) {
             return
         }
@@ -758,15 +765,16 @@ class TransactionViewModel(
         _titleInput.value = ""
         _noteInput.value = ""
         _totalInstallmentsInput.value = "6"
-        _timestamp.value = System.currentTimeMillis()
+        _timestamp.value = clock.millis()
         _saveState.value = SaveResult.Idle
         _editingTransactionId.value = null
         _isEditing.value = false
         _isRecurring.value = false
         _recurringBillName.value = ""
         _recurringFrequency.value = "MONTHLY"
-        _recurringDueDay.value = LocalDate.now().dayOfMonth
-        _recurringDueMonth.value = LocalDate.now().monthValue
+        val today = LocalDate.now(clock)
+        _recurringDueDay.value = today.dayOfMonth
+        _recurringDueMonth.value = today.monthValue
         _isToAccountLocked.value = false
         linkedCycleId = null
         pendingOperator = null

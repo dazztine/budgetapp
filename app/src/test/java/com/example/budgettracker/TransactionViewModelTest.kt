@@ -724,4 +724,60 @@ class TransactionViewModelTest {
         // initial 10_000 - 5,000 (50.00) - 7,500 (75.00) = -2,500L
         assertEquals(-2_500L, balance)
     }
+
+    @Test
+    fun testFutureDateRejectedByViewModel() = runBlocking {
+        val manilaZone = java.time.ZoneId.of("Asia/Manila")
+        val fixedInstant = java.time.LocalDate.of(2026, 10, 15).atTime(12, 0).atZone(manilaZone).toInstant()
+        val fixedClock = java.time.Clock.fixed(fixedInstant, manilaZone)
+        val fixedVm = TransactionViewModel(repository, testDispatcher, fixedClock)
+
+        fixedVm.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        fixedVm.onDigitInput("10")
+        fixedVm.setCategory("General")
+        fixedVm.setTitle("Future Expense")
+
+        // Set timestamp to tomorrow relative to fixed clock in Asia/Manila (Oct 16, 2026)
+        val tomorrow = java.time.LocalDate.now(fixedClock).plusDays(1)
+        val tomorrowMillis = tomorrow.atStartOfDay(manilaZone).toInstant().toEpochMilli()
+        fixedVm.setTimestamp(tomorrowMillis)
+
+        var callbackCalled = false
+        fixedVm.saveTransaction { callbackCalled = true }
+
+        assertFalse(callbackCalled)
+        assertFalse(fixedVm.isSaving.value)
+        val saveState = fixedVm.saveState.value
+        assertTrue(saveState is SaveResult.Error)
+        assertEquals("Future dates are not allowed for transactions", (saveState as SaveResult.Error).message)
+
+        val transactions = repository.allTransactions.first()
+        assertEquals(0, transactions.size)
+    }
+
+    @Test
+    fun testBackdatedTransactionSavesCorrectTimestamp() = runBlocking {
+        val manilaZone = java.time.ZoneId.of("Asia/Manila")
+        val fixedInstant = java.time.LocalDate.of(2026, 10, 15).atTime(12, 0).atZone(manilaZone).toInstant()
+        val fixedClock = java.time.Clock.fixed(fixedInstant, manilaZone)
+        val fixedVm = TransactionViewModel(repository, testDispatcher, fixedClock)
+
+        fixedVm.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        fixedVm.onDigitInput("25")
+        fixedVm.setCategory("General")
+        fixedVm.setTitle("Past Expense")
+
+        // Set timestamp to last month relative to fixed clock (Sept 15, 2026 10:30)
+        val lastMonth = java.time.LocalDate.now(fixedClock).minusMonths(1)
+        val pastMillis = lastMonth.atTime(10, 30).atZone(manilaZone).toInstant().toEpochMilli()
+        fixedVm.setTimestamp(pastMillis)
+
+        val latch = CountDownLatch(1)
+        fixedVm.saveTransaction { latch.countDown() }
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+
+        val transactions = repository.allTransactions.first()
+        assertEquals(1, transactions.size)
+        assertEquals(pastMillis, transactions[0].timestamp)
+    }
 }

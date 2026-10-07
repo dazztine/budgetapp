@@ -1887,5 +1887,121 @@ class DatabaseBalanceUnitTest {
         assertFalse("Cycle must be reopened after transaction deletion", cycleCheck.isPaid)
         assertNull("Paid date must be cleared", cycleCheck.paidDate)
     }
+
+    @Test
+    fun testBillAccountPendingCycleGenerationLaterThisMonthVsNextMonth() = runBlocking {
+        // Reference date: 15th of the month
+        val today = java.time.LocalDate.of(2026, 10, 15)
+
+        // Case 1: Due day later this month (due day 25)
+        val bill1Id = repository.insertAccount(
+            AccountEntity(
+                name = "Electricity Meralco",
+                type = AccountType.BILL,
+                initialBalance = 0L,
+                includeInNetWorth = false
+            )
+        )
+        val bill1Details = BillAccountDetailsEntity(
+            accountId = bill1Id,
+            dueDays = "25",
+            amountDue = 3_500_00L,
+            recurrence = "MONTHLY"
+        )
+        repository.insertBillDetails(bill1Details)
+        repository.ensurePendingCyclesForAccount(bill1Id, today = today)
+
+        val pending1 = repository.getPendingCyclesDirect(bill1Id)
+        assertEquals(1, pending1.size)
+        assertEquals(3_500_00L, pending1[0].amountDue)
+        val due1Date = java.time.Instant.ofEpochMilli(pending1[0].cycleDueDate).atZone(java.time.ZoneId.of("Asia/Manila")).toLocalDate()
+        assertEquals(2026, due1Date.year)
+        assertEquals(10, due1Date.monthValue)
+        assertEquals(25, due1Date.dayOfMonth)
+
+        // Case 2: Due day already passed this month (due day 5)
+        val bill2Id = repository.insertAccount(
+            AccountEntity(
+                name = "Water Manila Water",
+                type = AccountType.BILL,
+                initialBalance = 0L,
+                includeInNetWorth = false
+            )
+        )
+        val bill2Details = BillAccountDetailsEntity(
+            accountId = bill2Id,
+            dueDays = "5",
+            amountDue = 800_00L,
+            recurrence = "MONTHLY"
+        )
+        repository.insertBillDetails(bill2Details)
+        repository.ensurePendingCyclesForAccount(bill2Id, today = today)
+
+        val pending2 = repository.getPendingCyclesDirect(bill2Id)
+        assertEquals(1, pending2.size)
+        assertEquals(800_00L, pending2[0].amountDue)
+        val due2Date = java.time.Instant.ofEpochMilli(pending2[0].cycleDueDate).atZone(java.time.ZoneId.of("Asia/Manila")).toLocalDate()
+        assertEquals(2026, due2Date.year)
+        assertEquals(11, due2Date.monthValue)
+        assertEquals(5, due2Date.dayOfMonth)
+    }
+
+    @Test
+    fun testDashboardMonthlyTotalsExcludesBackdatedTransaction() = runBlocking {
+        val manilaZone = java.time.ZoneId.of("Asia/Manila")
+        // October 2026 window: Oct 1 00:00:00 to Oct 31 23:59:59.999
+        val startOfOct = java.time.LocalDate.of(2026, 10, 1).atStartOfDay(manilaZone).toInstant().toEpochMilli()
+        val endOfOct = java.time.LocalDate.of(2026, 10, 31).atTime(23, 59, 59, 999_000_000).atZone(manilaZone).toInstant().toEpochMilli()
+
+        val accId = repository.insertAccount(
+            AccountEntity(name = "Cash Wallet", type = AccountType.CASH, initialBalance = 100_000_00L)
+        )
+
+        // 1. Backdated expense from September 20, 2026 (₱1,500.00 = 150_000 centavos)
+        val sept20Millis = java.time.LocalDate.of(2026, 9, 20).atStartOfDay(manilaZone).toInstant().toEpochMilli()
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 150_000L,
+                accountId = accId,
+                category = "Food",
+                title = "Sept Groceries",
+                timestamp = sept20Millis
+            )
+        )
+
+        // 2. Current month expense from October 10, 2026 (₱2,500.00 = 250_000 centavos)
+        val oct10Millis = java.time.LocalDate.of(2026, 10, 10).atStartOfDay(manilaZone).toInstant().toEpochMilli()
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 250_000L,
+                accountId = accId,
+                category = "Food",
+                title = "Oct Groceries",
+                timestamp = oct10Millis
+            )
+        )
+
+        // 3. Current month income from October 5, 2026 (₱10,000.00 = 1_000_000 centavos)
+        val oct5Millis = java.time.LocalDate.of(2026, 10, 5).atStartOfDay(manilaZone).toInstant().toEpochMilli()
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.INCOME,
+                amount = 1_000_000L,
+                accountId = accId,
+                category = "Salary",
+                title = "October Salary",
+                timestamp = oct5Millis
+            )
+        )
+
+        val totals = database.transactionDao().getMonthlyTotals(startOfOct, endOfOct).first()
+
+        // Verify exact centavo values: totalExpense must strictly equal the Oct 10 expense, excluding the Sept 20 backdated expense
+        assertEquals(250_000L, totals.totalExpense)
+        assertEquals(1_000_000L, totals.totalIncome)
+        assertEquals(750_000L, totals.netSavings)
+    }
 }
 

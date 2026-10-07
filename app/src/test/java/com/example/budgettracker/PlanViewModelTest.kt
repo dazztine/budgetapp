@@ -311,4 +311,101 @@ class PlanViewModelTest {
         assertEquals("Goal balance must return to initial balance on delete", initialGoalBalance, restoredGoalBalance)
         assertEquals("Source balance must return to initial balance on delete", 10_000_00L, restoredSourceBalance)
     }
+
+    @Test
+    fun testUpcomingObligationsSortedByDueDateAndEmptyState() = runBlocking {
+        val clock = createFixedClock(LocalDate.of(2026, 10, 15))
+        val viewModel = PlanViewModel(repository, clock)
+
+        // Initially no cycles -> empty list
+        var state = viewModel.uiState.first { it is PlanUiState.Success } as PlanUiState.Success
+        assertTrue(state.upcomingObligations.isEmpty())
+
+        // Create two bill accounts with pending cycles
+        val bill1Id = repository.insertAccount(
+            AccountEntity(name = "Internet", type = AccountType.BILL, initialBalance = 0L, includeInNetWorth = false)
+        )
+        val bill2Id = repository.insertAccount(
+            AccountEntity(name = "Electric", type = AccountType.BILL, initialBalance = 0L, includeInNetWorth = false)
+        )
+
+        // Cycle 2: Due Oct 28
+        val cycle2DueDate = LocalDate.of(2026, 10, 28).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        database.loanBillingCycleDao().insert(
+            com.example.budgettracker.data.local.entity.LoanBillingCycleEntity(
+                accountId = bill2Id,
+                cycleDueDate = cycle2DueDate,
+                amountDue = 2_000_00L,
+                isPaid = false
+            )
+        )
+
+        // Cycle 1: Due Oct 20 (earlier than Cycle 2)
+        val cycle1DueDate = LocalDate.of(2026, 10, 20).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        database.loanBillingCycleDao().insert(
+            com.example.budgettracker.data.local.entity.LoanBillingCycleEntity(
+                accountId = bill1Id,
+                cycleDueDate = cycle1DueDate,
+                amountDue = 1_500_00L,
+                isPaid = false
+            )
+        )
+
+        state = viewModel.uiState.first { it is PlanUiState.Success && (it as PlanUiState.Success).upcomingObligations.size == 2 } as PlanUiState.Success
+        val obligations = state.upcomingObligations
+        assertEquals(2, obligations.size)
+        // Must be sorted by dueDate ascending
+        assertEquals("Internet", obligations[0].name)
+        assertEquals(LocalDate.of(2026, 10, 20), obligations[0].dueDate)
+        assertEquals(1_500_00L, obligations[0].amountCentavos)
+
+        assertEquals("Electric", obligations[1].name)
+        assertEquals(LocalDate.of(2026, 10, 28), obligations[1].dueDate)
+        assertEquals(2_000_00L, obligations[1].amountCentavos)
+    }
+
+    @Test
+    fun testBackdatedExpenseExcludedFromThisMonthTotalsAndBudgets() = runBlocking {
+        // Oct 15, 2026 current time
+        val clock = createFixedClock(LocalDate.of(2026, 10, 15))
+        val accId = repository.insertAccount(AccountEntity(name = "Wallet", type = AccountType.CASH, initialBalance = 50_000_00L))
+        repository.upsertBudget(BudgetEntity(category = null, amount = 20_000_00L, period = "MONTHLY"))
+        repository.upsertBudget(BudgetEntity(category = "Food", amount = 10_000_00L, period = "MONTHLY"))
+
+        // Backdated expense from previous month (Sept 20, 2026)
+        val sept20Millis = LocalDate.of(2026, 9, 20).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 5_000_00L,
+                accountId = accId,
+                category = "Food",
+                title = "Sept Groceries",
+                timestamp = sept20Millis
+            )
+        )
+
+        // Expense from this month (Oct 10, 2026)
+        val oct10Millis = LocalDate.of(2026, 10, 10).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        repository.insertTransaction(
+            TransactionEntity(
+                type = TransactionType.EXPENSE,
+                amount = 2_000_00L,
+                accountId = accId,
+                category = "Food",
+                title = "Oct Groceries",
+                timestamp = oct10Millis
+            )
+        )
+
+        val viewModel = PlanViewModel(repository, clock)
+        val state = viewModel.uiState.first {
+            it is PlanUiState.Success && (it as PlanUiState.Success).overallBudget != null
+        } as PlanUiState.Success
+
+        // Total spent in this month must only be 2_000_00L (the Oct 10 expense), excluding the backdated 5_000_00L expense
+        assertEquals(2_000_00L, state.paceResult.totalSpent)
+        val foodPacing = state.paceResult.categoryPacings.first { it.categoryKey == "Food" }
+        assertEquals(2_000_00L, foodPacing.spentAmount)
+    }
 }

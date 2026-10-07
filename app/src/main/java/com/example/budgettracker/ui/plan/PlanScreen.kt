@@ -34,6 +34,44 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.budgettracker.data.local.entity.TransactionEntity
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Payment
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Receipt
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.budgettracker.data.model.AccountType
+import com.example.budgettracker.ui.dashboard.UpcomingBillItem
+import com.example.budgettracker.ui.theme.AmberGlow
+import com.example.budgettracker.ui.theme.Green500
+import com.example.budgettracker.ui.theme.MidnightNavy
+import com.example.budgettracker.ui.theme.MutedCoral
+import com.example.budgettracker.ui.theme.Orange500
+import com.example.budgettracker.ui.theme.ZincCornerRadius
+import com.example.budgettracker.ui.theme.ZincSoftCornerRadius
+import com.example.budgettracker.ui.util.BrandLogoMapper
+import com.example.budgettracker.util.CurrencyUtils
+import com.example.budgettracker.util.DueDateStatus
+
 import com.example.budgettracker.ui.plan.components.AddEditBudgetBottomSheet
 import com.example.budgettracker.ui.plan.components.BudgetsSubTabContent
 
@@ -175,16 +213,12 @@ fun PlanScreen(
                                 )
                             }
                             PlanSubTab.UPCOMING -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "Upcoming sub-tab shell ready (${state.upcomingObligations.size} items)",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 14.sp
-                                    )
-                                }
+                                UpcomingObligationsSubTabContent(
+                                    upcomingObligations = state.upcomingObligations,
+                                    onPayBill = { accountId, amount, cycleId ->
+                                        onPayBill?.invoke(accountId, amount, cycleId)
+                                    }
+                                )
                             }
                             PlanSubTab.GOALS -> {
                                 Box(
@@ -245,5 +279,213 @@ fun PlanScreen(
                 isBudgetSheetOpen = false
             }
         )
+    }
+}
+
+@Composable
+fun UpcomingObligationsSubTabContent(
+    upcomingObligations: List<UpcomingBillItem>,
+    onPayBill: (accountId: Long, amountCentavos: Long, cycleId: Long?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (upcomingObligations.isEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Green500.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Green500,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Text(
+                    text = "No upcoming bills or payments",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "You're completely all caught up!",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(upcomingObligations, key = { it.id }) { item ->
+                UpcomingObligationCard(
+                    item = item,
+                    onPay = {
+                        val accId = item.accountId
+                        if (accId != null) {
+                            onPayBill(accId, item.amountCentavos, item.cycleId)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun UpcomingObligationCard(
+    item: UpcomingBillItem,
+    onPay: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val brandLogoRes = BrandLogoMapper.getLogoResId(item.presetId, item.name)
+
+    val typeIcon = when (item.accountType) {
+        AccountType.CASH -> Icons.Outlined.AccountBalanceWallet
+        AccountType.BANK, AccountType.SAVINGS -> Icons.Outlined.AccountBalance
+        AccountType.E_WALLET -> Icons.Outlined.PhoneAndroid
+        AccountType.BNPL, AccountType.LOAN, AccountType.CREDIT -> Icons.Outlined.CreditCard
+        AccountType.BILL -> Icons.Outlined.Receipt
+        AccountType.ASSET, null -> Icons.Outlined.Receipt
+    }
+
+    val (statusColor, statusText) = when (item.status) {
+        DueDateStatus.OVERDUE -> Pair(MutedCoral, if (item.daysUntilDue < 0) "Overdue by ${-item.daysUntilDue}d" else "Overdue")
+        DueDateStatus.DUE_SOON -> {
+            if (item.daysUntilDue == 0L) Pair(Orange500, "Due Today")
+            else Pair(AmberGlow, "${item.daysUntilDue}d left")
+        }
+        DueDateStatus.UPCOMING -> Pair(MaterialTheme.colorScheme.onSurfaceVariant, "${item.daysUntilDue}d left")
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(ZincCornerRadius))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(ZincCornerRadius)
+            )
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Icon / Logo
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (brandLogoRes != null) {
+                        Icon(
+                            painter = painterResource(id = brandLogoRes),
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = typeIcon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                // Info
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = item.name,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Due: ${item.dueDate.month.name.take(3)} ${item.dueDate.dayOfMonth}, ${item.dueDate.year}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Amount and Status
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = CurrencyUtils.formatCentavosToPesos(item.amountCentavos),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = statusText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = statusColor
+                    )
+                }
+            }
+
+            // Pay Action
+            if (item.accountId != null) {
+                Button(
+                    onClick = onPay,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AmberGlow,
+                        contentColor = MidnightNavy
+                    ),
+                    shape = RoundedCornerShape(ZincSoftCornerRadius),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Payment,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Pay",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
     }
 }

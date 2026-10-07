@@ -33,6 +33,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -43,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.TextButton
@@ -54,6 +57,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,11 +113,13 @@ fun ManualTransactionScreen(
     val recurringFrequency by viewModel.recurringFrequency.collectAsState()
     val recurringDueDay by viewModel.recurringDueDay.collectAsState()
     val recurringDueMonth by viewModel.recurringDueMonth.collectAsState()
+    val timestamp by viewModel.timestamp.collectAsState()
 
     var showCategoryBottomSheet by remember { mutableStateOf(false) }
     var isCalculatorVisible by remember { mutableStateOf(false) }
     var showInvalidMathDialog by remember { mutableStateOf(false) }
     var showRecurringBottomSheet by remember { mutableStateOf(false) }
+    var showDatePickerDialog by rememberSaveable { mutableStateOf(false) }
 
     val selectedAccount = accounts.find { it.id == selectedAccountId }
     val selectedToAccount = accounts.find { it.id == selectedToAccountId }
@@ -382,6 +388,111 @@ fun ManualTransactionScreen(
                     }
                 }
 
+                // Transaction Date Selector
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val manilaZone = com.example.budgettracker.domain.TransactionDateValidator.DEFAULT_ZONE_ID
+                    val today = java.time.LocalDate.now(manilaZone)
+                    val yesterday = today.minusDays(1)
+                    val currentSelectedDate = java.time.Instant.ofEpochMilli(timestamp)
+                        .atZone(manilaZone)
+                        .toLocalDate()
+
+                    val dateValidation = com.example.budgettracker.domain.TransactionDateValidator.validate(timestamp)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Date",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        val formattedSelectedDate = java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy").format(currentSelectedDate)
+                        Text(
+                            text = formattedSelectedDate,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = currentSelectedDate == today,
+                            onClick = {
+                                val newMillis = com.example.budgettracker.domain.TransactionDateValidator.combineDateWithOriginalTime(
+                                    today,
+                                    timestamp,
+                                    manilaZone
+                                )
+                                viewModel.setTimestamp(newMillis)
+                            },
+                            label = { Text("Today", fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AmberGlow,
+                                selectedLabelColor = MidnightNavy
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        FilterChip(
+                            selected = currentSelectedDate == yesterday,
+                            onClick = {
+                                val newMillis = com.example.budgettracker.domain.TransactionDateValidator.combineDateWithOriginalTime(
+                                    yesterday,
+                                    timestamp,
+                                    manilaZone
+                                )
+                                viewModel.setTimestamp(newMillis)
+                            },
+                            label = { Text("Yesterday", fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AmberGlow,
+                                selectedLabelColor = MidnightNavy
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        FilterChip(
+                            selected = currentSelectedDate != today && currentSelectedDate != yesterday,
+                            onClick = { showDatePickerDialog = true },
+                            label = { Text("Pick Date", fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AmberGlow,
+                                selectedLabelColor = MidnightNavy
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    when (dateValidation) {
+                        is com.example.budgettracker.domain.TransactionDateValidationResult.FutureDateRejected -> {
+                            Text(
+                                text = "⚠️ ${dateValidation.errorMessage}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        is com.example.budgettracker.domain.TransactionDateValidationResult.ValidWithWarning -> {
+                            Text(
+                                text = "ℹ️ ${dateValidation.warningMessage}",
+                                fontSize = 11.sp,
+                                color = AmberGlow,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+                        is com.example.budgettracker.domain.TransactionDateValidationResult.Valid -> {}
+                    }
+                }
+
                 // Remarks Input
                 OutlinedTextField(
                     value = noteInput,
@@ -612,5 +723,44 @@ fun ManualTransactionScreen(
             },
             onDismiss = { showRecurringBottomSheet = false }
         )
+    }
+
+    if (showDatePickerDialog) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = timestamp
+        )
+
+        DatePickerDialog(
+            onDismissRequest = { showDatePickerDialog = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selectedMillis = datePickerState.selectedDateMillis
+                        if (selectedMillis != null) {
+                            val manilaZone = com.example.budgettracker.domain.TransactionDateValidator.DEFAULT_ZONE_ID
+                            val chosenLocalDate = java.time.Instant.ofEpochMilli(selectedMillis)
+                                .atZone(java.time.ZoneOffset.UTC)
+                                .toLocalDate()
+                            val combinedMillis = com.example.budgettracker.domain.TransactionDateValidator.combineDateWithOriginalTime(
+                                chosenLocalDate,
+                                timestamp,
+                                manilaZone
+                            )
+                            viewModel.setTimestamp(combinedMillis)
+                        }
+                        showDatePickerDialog = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePickerDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
 }

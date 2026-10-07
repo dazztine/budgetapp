@@ -99,6 +99,7 @@ fun ManualTransactionScreen(
     val totalInstallmentsInput by viewModel.totalInstallmentsInput.collectAsState()
     val noteInput by viewModel.noteInput.collectAsState()
     val saveState by viewModel.saveState.collectAsState()
+    val isSaving by viewModel.isSaving.collectAsState()
     val isEditing by viewModel.isEditing.collectAsState()
     val categorySuggestions by viewModel.categorySuggestions.collectAsState()
     val customCategories by viewModel.customCategories.collectAsState()
@@ -525,6 +526,7 @@ fun ManualTransactionScreen(
                 if (!isCalculatorVisible) {
                     Button(
                         onClick = { viewModel.saveTransaction() },
+                        enabled = !isSaving,
                         shape = RoundedCornerShape(ZincSoftCornerRadius),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,

@@ -613,4 +613,115 @@ class TransactionViewModelTest {
         assertEquals("12", updatedDetails!!.dueDays)
         assertEquals(280000L, updatedDetails.amountDue)
     }
+
+    @Test
+    fun testDoubleTapSaveTransactionCreatesOnlyOneTransaction() = runBlocking {
+        val standardDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
+        val asyncVm = TransactionViewModel(repository, standardDispatcher)
+
+        asyncVm.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        asyncVm.onDigitInput("1")
+        asyncVm.setCategory("General")
+        asyncVm.setTitle("Test Expense")
+
+        // Rapid back-to-back invocation before dispatcher advances
+        asyncVm.saveTransaction()
+        asyncVm.saveTransaction()
+
+        // Advance dispatcher to execute scheduled coroutines
+        standardDispatcher.scheduler.advanceUntilIdle()
+
+        val transactions = repository.allTransactions.first()
+        assertEquals(1, transactions.size)
+        val balance = database.accountDao().getAccountBalanceDirect(account1Id)
+        assertEquals(9_900L, balance)
+    }
+
+    @Test
+    fun testFailurePathReleasesGuardAllowingSubsequentSave() = runBlocking {
+        viewModel.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        viewModel.onClear()
+
+        // Validation failure (amount <= 0) should not lock the guard
+        viewModel.saveTransaction()
+        assertTrue(viewModel.saveState.value is SaveResult.Error)
+        assertFalse(viewModel.isSaving.value)
+
+        // Enter valid transaction and verify it can be saved successfully
+        viewModel.onDigitInput("100")
+        viewModel.setCategory("Food & Dining")
+        val latch = CountDownLatch(1)
+        viewModel.saveTransaction { latch.countDown() }
+        assertTrue(latch.await(2, TimeUnit.SECONDS))
+        assertEquals(SaveResult.Success, viewModel.saveState.value)
+        assertFalse(viewModel.isSaving.value)
+
+        val txs = repository.allTransactions.first()
+        assertEquals(1, txs.size)
+    }
+
+    @Test
+    fun testDoubleTapSaveTransferCreatesOnlyOneTransferAndUpdatesBalancesOnce() = runBlocking {
+        val standardDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
+        val asyncVm = TransactionViewModel(repository, standardDispatcher)
+
+        asyncVm.prepareForTransfer(
+            toAccountId = account2Id,
+            amountCentavos = 50000L,
+            category = "Bills & Utilities",
+            title = "Deposit to Goal"
+        )
+        asyncVm.setAccountId(account1Id)
+
+        // Rapid back-to-back save on transfer
+        asyncVm.saveTransaction()
+        asyncVm.saveTransaction()
+
+        standardDispatcher.scheduler.advanceUntilIdle()
+
+        val transactions = repository.allTransactions.first()
+        assertEquals(1, transactions.size)
+        assertEquals(TransactionType.TRANSFER, transactions[0].type)
+        assertEquals(50000L, transactions[0].amount)
+
+        // account1: initial 10_000 - 50_000 = -40_000
+        val balance1 = database.accountDao().getAccountBalanceDirect(account1Id)
+        assertEquals(-40_000L, balance1)
+        // account2: initial 50_000 + 50_000 = 100_000
+        val balance2 = database.accountDao().getAccountBalanceDirect(account2Id)
+        assertEquals(100_000L, balance2)
+    }
+
+    @Test
+    fun testSequentialSavesSucceedAfterResetForm() = runBlocking {
+        viewModel.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        viewModel.onDigitInput("50")
+        viewModel.setCategory("General")
+        viewModel.setTitle("First Expense")
+
+        val latch1 = CountDownLatch(1)
+        viewModel.saveTransaction { latch1.countDown() }
+        assertTrue(latch1.await(2, TimeUnit.SECONDS))
+        assertFalse(viewModel.isSaving.value)
+
+        // Reset form for next entry
+        viewModel.resetFormForNextEntry()
+        assertFalse(viewModel.isSaving.value)
+
+        viewModel.prepareForNewTransaction(accountId = account1Id, type = TransactionType.EXPENSE)
+        viewModel.onDigitInput("75")
+        viewModel.setCategory("General")
+        viewModel.setTitle("Second Expense")
+
+        val latch2 = CountDownLatch(1)
+        viewModel.saveTransaction { latch2.countDown() }
+        assertTrue(latch2.await(2, TimeUnit.SECONDS))
+        assertFalse(viewModel.isSaving.value)
+
+        val transactions = repository.allTransactions.first()
+        assertEquals(2, transactions.size)
+        val balance = database.accountDao().getAccountBalanceDirect(account1Id)
+        // initial 10_000 - 5,000 (50.00) - 7,500 (75.00) = -2,500L
+        assertEquals(-2_500L, balance)
+    }
 }

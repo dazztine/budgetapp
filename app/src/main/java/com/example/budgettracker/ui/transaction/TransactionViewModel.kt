@@ -90,6 +90,10 @@ class TransactionViewModel(
     private val _saveState = MutableStateFlow<SaveResult>(SaveResult.Idle)
     val saveState: StateFlow<SaveResult> = _saveState.asStateFlow()
 
+    private val isSavingInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
+
     private val _editingTransactionId = MutableStateFlow<Long?>(null)
     val editingTransactionId: StateFlow<Long?> = _editingTransactionId.asStateFlow()
 
@@ -511,6 +515,11 @@ class TransactionViewModel(
             }
         }
 
+        if (!isSavingInProgress.compareAndSet(false, true)) {
+            return
+        }
+        _isSaving.value = true
+
         val title = _titleInput.value.trim().ifEmpty { type.name }
         val rawCategory = _categoryInput.value.trim()
         val destAccount = if (type == TransactionType.TRANSFER && toAccountId != null) {
@@ -681,6 +690,9 @@ class TransactionViewModel(
                 onSuccess()
             } catch (e: Exception) {
                 _saveState.value = SaveResult.Error(e.message ?: "Failed to save transaction")
+            } finally {
+                isSavingInProgress.set(false)
+                _isSaving.value = false
             }
         }
     }
@@ -759,6 +771,8 @@ class TransactionViewModel(
         linkedCycleId = null
         pendingOperator = null
         storedOperand = null
+        isSavingInProgress.set(false)
+        _isSaving.value = false
         onTransactionSavedCallback = null
         onTransactionSavedWithAmountCallback = null
     }
